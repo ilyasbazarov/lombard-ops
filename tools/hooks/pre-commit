@@ -1,0 +1,336 @@
+#!/usr/bin/env bash
+# tools/hooks/pre-commit — механические инварианты коммита (M-4, ADR-022).
+# Семь проверок; каждая печатает совпавшие строки с номерами, не голый вердикт.
+# Установка: ln -sf ../../tools/hooks/pre-commit .git/hooks/pre-commit
+set -u
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ОШИБКА: не git-репозиторий"; exit 2; }
+cd "$repo_root" || exit 2
+
+FAIL=0
+fail() { FAIL=1; }
+
+# ---------------------------------------------------------------------------
+# Утилиты чтения индекса и диффа — БЕЗ пайпа в head (ловушка 3): всегда сначала
+# полный захват в переменную командной подстановкой, потом обработка herestring'ом.
+# ---------------------------------------------------------------------------
+
+staged_content() {
+    # $1 — путь к файлу; пусто, если файл не в индексе.
+    git show ":$1" 2>/dev/null
+}
+
+head_content() {
+    # $1 — путь к файлу; пусто, если файла нет в HEAD (новый файл).
+    if git rev-parse -q --verify HEAD >/dev/null 2>&1; then
+        git show "HEAD:$1" 2>/dev/null
+    fi
+}
+
+staged_diff() {
+    git diff --cached -- "$1" 2>/dev/null
+}
+
+staged_files() {
+    git diff --cached --name-only --diff-filter=ACMR 2>/dev/null
+}
+
+# Множество идентификаторов ADR-/Q-/T-/M-/RF- из текста. awk, не sed (ловушка 2):
+# BSD sed на macOS не тянет конструкцию для извлечения множеств.
+extract_ids() {
+    local content="$1"
+    awk '
+        {
+            line = $0
+            while (match(line, /(ADR|Q|T|M|RF)-[0-9]+(-[0-9]+)?[a-z]?/)) {
+                print substr(line, RSTART, RLENGTH)
+                line = substr(line, RSTART + RLENGTH)
+            }
+        }
+    ' <<< "$content" | sort -u
+}
+
+# Строки региона между start_re (включая саму строку-старт, не печатается) и
+# end_re (терминатор точный: строка end_re НЕ входит в регион). Если end_re не
+# встретился — регион тянется до конца текста. Ловушка 6: терминатор задаётся точно.
+extract_section() {
+    # Паттерны идут через ENVIRON, не -v: -v прогоняет значение через
+    # собственную escape-интерпретацию awk и портит обратные слэши в regex.
+    local content="$1"
+    HOOK_START_RE="$2" HOOK_END_RE="$3" awk '
+        BEGIN { start = ENVIRON["HOOK_START_RE"]; end = ENVIRON["HOOK_END_RE"] }
+        $0 ~ start { flag=1; next }
+        flag && $0 ~ end { flag=0 }
+        flag { print }
+    ' <<< "$content"
+}
+
+# Добавленные ("+") строки диффа файла с номером строки НОВОГО файла.
+# Формат вывода: "<line>\t<content>". Без head, без ранней остановки на большом
+# патче (ловушка 4): дочитывается до конца, вход не обрывается по первой находке.
+added_lines_numbered() {
+    local diff_text="$1"
+    awk '
+        /^@@/ {
+            match($0, /\+[0-9]+/)
+            newline = substr($0, RSTART+1, RLENGTH-1) + 0
+            next
+        }
+        /^\+\+\+/ { next }
+        /^---/    { next }
+        /^\+/ { print newline "\t" substr($0,2); newline++; next }
+        /^ /  { newline++; next }
+    ' <<< "$diff_text"
+}
+
+echo "=== tools/hooks/pre-commit · $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+files_in_commit="$(staged_files)"
+if [ -z "$files_in_commit" ]; then
+    echo "Индекс пуст — нечего коммитить."
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Проверка 1 — первая строка нумерованного/подчёркнутого документа = имя файла.
+# Конвенция репозитория: "NN_STEM.md" -> "# NN · STEM — ..."; "_STEM.md" -> "# _STEM — ...".
+# ---------------------------------------------------------------------------
+echo
+echo "-- Проверка 1: первая строка = имя документа --"
+check1_hits=0
+while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    base="$(basename "$f")"
+    stem="${base%.md}"
+    case "$base" in
+        [0-9][0-9]_*.md)
+            nn="${stem:0:2}"
+            rest="${stem:3}"
+            expected="# ${nn} · ${rest}"
+            ;;
+        _*.md)
+            expected="# ${stem}"
+            ;;
+        *)
+            continue
+            ;;
+    esac
+    content="$(staged_content "$f")"
+    first_line="$(awk 'NR==1{print; exit}' <<< "$content")"
+    case "$first_line" in
+        "${expected}"*) : ;;
+        *)
+            echo "СОДЕРЖИМОЕ НЕ ТО: ${f} — ожидалось начало «${expected}», внутри «${first_line}»"
+            check1_hits=$((check1_hits+1))
+            fail
+            ;;
+    esac
+done <<< "$files_in_commit"
+echo "срабатываний: ${check1_hits}"
+
+# ---------------------------------------------------------------------------
+# Проверка 2 — append решения в 06_DECISIONS_LOG.md ⇒ строка в 06_INDEX.md тем же коммитом.
+# ---------------------------------------------------------------------------
+echo
+echo "-- Проверка 2: новое решение ⇒ строка в оглавлении --"
+check2_hits=0
+log_diff="$(staged_diff 06_DECISIONS_LOG.md)"
+added_headings="$(awk '/^\+## ADR-/{print substr($0,2)}' <<< "$log_diff")"
+added_adr_ids="$(extract_ids "$added_headings")"
+if [ -n "$added_adr_ids" ]; then
+    index_diff="$(staged_diff 06_INDEX.md)"
+    added_index_lines="$(awk '/^\+/ && $0 !~ /^\+\+\+/ {print substr($0,2)}' <<< "$index_diff")"
+    added_index_ids="$(extract_ids "$added_index_lines")"
+    while IFS= read -r id; do
+        [ -z "$id" ] && continue
+        if ! grep -qxF "$id" <<< "$added_index_ids"; then
+            echo "НЕ ПРОШЛО: ${id} добавлен в 06_DECISIONS_LOG.md, но строка с ${id} не добавлена в 06_INDEX.md тем же коммитом"
+            check2_hits=$((check2_hits+1))
+            fail
+        fi
+    done <<< "$added_adr_ids"
+fi
+echo "срабатываний: ${check2_hits}"
+
+# ---------------------------------------------------------------------------
+# Проверка 3 — идентификатор исчез из 07_STATE.md/07_GAPS.md ⇒ появился в
+# 07_ARCHIVE.md тем же коммитом. Сравниваются МНОЖЕСТВА, не строки (ловушка 5 §M-4).
+# ---------------------------------------------------------------------------
+echo
+echo "-- Проверка 3: исчезнувший идентификатор ⇒ архив тем же коммитом --"
+check3_hits=0
+archive_before_ids="$(extract_ids "$(head_content 07_ARCHIVE.md)")"
+archive_after_ids="$(extract_ids "$(staged_content 07_ARCHIVE.md)")"
+archive_added_ids="$(comm -13 <(sort -u <<< "$archive_before_ids") <(sort -u <<< "$archive_after_ids") 2>/dev/null)"
+for src in 07_STATE.md 07_GAPS.md; do
+    before_ids="$(extract_ids "$(head_content "$src")")"
+    after_ids="$(extract_ids "$(staged_content "$src")")"
+    removed_ids="$(comm -23 <(sort -u <<< "$before_ids") <(sort -u <<< "$after_ids") 2>/dev/null)"
+    [ -z "$removed_ids" ] && continue
+    while IFS= read -r id; do
+        [ -z "$id" ] && continue
+        if ! grep -qxF "$id" <<< "$archive_added_ids"; then
+            echo "НЕ ПРОШЛО: ${id} пропал из ${src}, но не добавлен в 07_ARCHIVE.md тем же коммитом"
+            check3_hits=$((check3_hits+1))
+            fail
+        fi
+    done <<< "$removed_ids"
+done
+echo "срабатываний: ${check3_hits}"
+
+# ---------------------------------------------------------------------------
+# Проверка 4 — правка 07_STATE.md ⇒ обновлён updated_at.
+# ---------------------------------------------------------------------------
+echo
+echo "-- Проверка 4: правка состояния ⇒ обновлён updated_at --"
+check4_hits=0
+state_diff="$(staged_diff 07_STATE.md)"
+if [ -n "$state_diff" ]; then
+    # updated_at не обязан начинать строку (в реальном файле он встроен в
+    # общую строку "**Статус:** ... · **updated_at:** ... · **обновил:** ..."):
+    # ищем добавленную строку, СОДЕРЖАЩУЮ маркер, а не начинающуюся с него.
+    if ! grep -qE '^\+.*\*\*updated_at:\*\*' <<< "$state_diff"; then
+        echo "НЕ ПРОШЛО: 07_STATE.md изменён, но строка updated_at не тронута этим коммитом"
+        check4_hits=$((check4_hits+1))
+        fail
+    fi
+fi
+echo "срабатываний: ${check4_hits}"
+
+# ---------------------------------------------------------------------------
+# Проверка 5 — множества идентификаторов индекса вопросов (07_STATE.md) и
+# полного реестра (07_GAPS.md) совпадают. Регион STATE ограничен точным
+# терминатором (ловушка 6): от "## Открытые вопросы" до следующего "## ".
+# ---------------------------------------------------------------------------
+echo
+echo "-- Проверка 5: индекс вопросов STATE = реестр GAPS --"
+check5_hits=0
+state_final="$(staged_content 07_STATE.md)"
+gaps_final="$(staged_content 07_GAPS.md)"
+state_q_section="$(extract_section "$state_final" '^## Открытые вопросы' '^## ')"
+state_q_ids="$(extract_ids "$state_q_section" | grep -E '^Q-' | sort -u)"
+gaps_q_section="$(extract_section "$gaps_final" '^\|---' '^(\*\*Правило петли|--- END)')"
+gaps_q_ids="$(extract_ids "$gaps_q_section" | grep -E '^Q-' | sort -u)"
+only_in_state="$(comm -23 <(printf '%s\n' "$state_q_ids") <(printf '%s\n' "$gaps_q_ids") 2>/dev/null | grep -v '^$')"
+only_in_gaps="$(comm -13 <(printf '%s\n' "$state_q_ids") <(printf '%s\n' "$gaps_q_ids") 2>/dev/null | grep -v '^$')"
+if [ -n "$only_in_state" ] || [ -n "$only_in_gaps" ]; then
+    echo "НЕ ПРОШЛО: множества идентификаторов расходятся"
+    [ -n "$only_in_state" ] && echo "  только в 07_STATE.md: $(tr '\n' ' ' <<< "$only_in_state")"
+    [ -n "$only_in_gaps" ] && echo "  только в 07_GAPS.md: $(tr '\n' ' ' <<< "$only_in_gaps")"
+    check5_hits=1
+    fail
+fi
+echo "срабатываний: ${check5_hits}"
+
+# ---------------------------------------------------------------------------
+# Проверка 6 — кириллические гомоглифы внутри латинских идентификаторов.
+# Класс символов — альтернация целых символов, НЕ диапазон в скобках (ловушка 1):
+# байтовый диапазон над многобайтными символами совпал бы с любой кириллицей.
+# Scoped на идентификаторы намеренно (ловушка 7): токен обязан иметь ФОРМУ нашего
+# идентификатора (буквы-ПРЕФИКС + дефис + цифры, как ADR-005/Q-12/T-0-3b/M-4).
+# Двуязычные композиты прозы (session-блоков, DDNS-имена) дефиса перед цифрой
+# не несут и в выборку не попадают в принципе.
+# Само по себе кириллическое ИМЯ такой формы (Р-1, У-2, С-3 — принятые в этом
+# репозитории метки находок в reference/*) — легитимно и НЕ гомоглиф: в нём нет
+# попытки выдать себя за наш латинский префикс. Срабатывать обязан только
+# случай, когда префикс, будучи "делатинизирован" (каждый гомоглиф заменён на
+# похожую латинскую букву), совпадает с ОДНИМ ИЗ РЕАЛЬНЫХ префиксов проекта
+# (ADR/Q/T/M/RF), а сам, «сырой», от него отличается — то есть подмена
+# произошла внутри чужого по форме, но нашего по смыслу идентификатора.
+# ---------------------------------------------------------------------------
+echo
+echo "-- Проверка 6: кириллические гомоглифы в латинских идентификаторах --"
+check6_hits=0
+delatinize() {
+    local s="$1"
+    s="${s//А/A}"; s="${s//В/B}"; s="${s//Е/E}"; s="${s//К/K}"; s="${s//М/M}"
+    s="${s//Н/H}"; s="${s//О/O}"; s="${s//Р/P}"; s="${s//С/C}"; s="${s//Т/T}"
+    s="${s//У/Y}"; s="${s//Х/X}"
+    printf '%s' "$s"
+}
+while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    d="$(staged_diff "$f")"
+    [ -z "$d" ] && continue
+    while IFS=$'\t' read -r lineno content; do
+        [ -z "$lineno" ] && continue
+        while IFS= read -r token; do
+            [ -z "$token" ] && continue
+            prefix="${token%%-*}"
+            delatinized="$(delatinize "$prefix")"
+            if [ "$delatinized" != "$prefix" ]; then
+                case "$delatinized" in
+                    ADR|Q|T|M|RF)
+                        echo "НЕ ПРОШЛО: ${f}:${lineno}: гомоглиф в «${token}» (похоже на наш префикс ${delatinized}) — ${content}"
+                        check6_hits=$((check6_hits+1))
+                        fail
+                        ;;
+                esac
+            fi
+        done < <(grep -oE '[A-Za-zА-Яа-яЁё]+-[0-9]+(-[0-9]+)?[A-Za-zА-Яа-я]?' <<< "$content")
+    done < <(added_lines_numbered "$d")
+done <<< "$files_in_commit"
+echo "срабатываний: ${check6_hits}"
+
+# ---------------------------------------------------------------------------
+# Проверка 7 — секреты в патче. Категории из ADR-001 дословно: креды/ключи
+# любого рода (в т.ч. WireGuard), DDNS-имена/внешние порты VPN контура клиента,
+# токены Telegram, раскрытые пароли БД (общий случай "-password <реальное_значение>"
+# ловит и исторический SYSDBA/masterkey — отдельная категория под конкретное слово
+# не заводится: она бы совпала с собственным кодом этой же проверки, упоминающим
+# слово буквально). Полная выдача печатается; пустая выдача не есть факт
+# «секретов нет» без обратной проверки исправности (см. selftest).
+# ---------------------------------------------------------------------------
+echo
+echo "-- Проверка 7: секреты в патче (ADR-001) --"
+check7_hits=0
+while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    d="$(staged_diff "$f")"
+    [ -z "$d" ] && continue
+    while IFS=$'\t' read -r lineno content; do
+        [ -z "$lineno" ] && continue
+
+        # (a) Явное присвоение пароля/секрета не placeholder-значением.
+        if grep -qiE '(password|pwd|secret|token|apikey|api_key)[[:space:]]*[:=][[:space:]]*[^<[:space:]]' <<< "$content" \
+           || grep -qiE -- '-password[[:space:]]+[^<[:space:]]' <<< "$content"; then
+            echo "НЕ ПРОШЛО [явный секрет]: ${f}:${lineno}"
+            check7_hits=$((check7_hits+1)); fail
+        fi
+
+        # (b) WireGuard/base64-ключи (42-43 символа + '=').
+        if grep -qE '[A-Za-z0-9+/]{42,43}=' <<< "$content"; then
+            echo "НЕ ПРОШЛО [похоже на WireGuard/base64-ключ]: ${f}:${lineno}"
+            check7_hits=$((check7_hits+1)); fail
+        fi
+
+        # (c) Токен Telegram-бота.
+        if grep -qE '[0-9]{8,10}:[A-Za-z0-9_-]{34,36}' <<< "$content"; then
+            echo "НЕ ПРОШЛО [похоже на токен Telegram]: ${f}:${lineno}"
+            check7_hits=$((check7_hits+1)); fail
+        fi
+
+        # (d) PEM/приватный ключ сервисного аккаунта.
+        if grep -qE -- '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|"private_key":[[:space:]]*"-----BEGIN' <<< "$content"; then
+            echo "НЕ ПРОШЛО [приватный ключ]: ${f}:${lineno}"
+            check7_hits=$((check7_hits+1)); fail
+        fi
+
+        # (e) DDNS-имена контура клиента.
+        if grep -qE '\.(duckdns\.org|no-ip\.(org|com|info)|ddns\.net|dynu\.(com|net))' <<< "$content"; then
+            echo "НЕ ПРОШЛО [DDNS-имя контура]: ${f}:${lineno}"
+            check7_hits=$((check7_hits+1)); fail
+        fi
+    done < <(added_lines_numbered "$d")
+done <<< "$files_in_commit"
+echo "срабатываний: ${check7_hits}"
+
+echo
+echo "=== ИТОГ ==="
+if [ "$FAIL" -eq 0 ]; then
+    echo "ХУК: пройдено, нарушений нет"
+    exit 0
+else
+    echo "ХУК: отказ — коммит остановлен (см. НЕ ПРОШЛО выше)"
+    exit 1
+fi
