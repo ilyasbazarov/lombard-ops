@@ -1,0 +1,10 @@
+worktrees/
+.claude/worktrees/
+*.log
+*.bak
+*.fdb
+*.conf
+.DS_Store
+__pycache__/
+.venv/
+node_modules/
