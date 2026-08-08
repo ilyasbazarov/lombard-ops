@@ -105,6 +105,39 @@ else
 fi
 echo
 
+# --- 6. Назначенная модель по ролям (ADR-030) ----------------------------------
+# Источник истины — файлы ролей, а не память человека и не текст конвенций:
+# инструмент читает именно их. Роль без объявленной модели есть CONTEXT GAP, а не
+# «по умолчанию какая-нибудь»: ровно эта неопределённость и заставляла спрашивать.
+echo "-- 6. Модель по ролям (источник — .claude/agents/*.md, поле model) --"
+role_count=0
+role_out=""
+for role_file in .claude/agents/*.md; do
+    [ -e "$role_file" ] || continue
+    role_name="$(awk -F': *' '/^name:/{print $2; exit}' "$role_file")"
+    role_model="$(awk -F': *' '/^model:/{print $2; exit}' "$role_file")"
+    [ -n "$role_name" ] || role_name="$(basename "$role_file" .md)"
+    role_count=$((role_count+1))
+    if [ -n "$role_model" ]; then
+        role_out="${role_out}${role_name} → ${role_model}
+"
+    else
+        role_out="${role_out}${role_name} → МОДЕЛЬ НЕ ОБЪЯВЛЕНА — CONTEXT GAP (${role_file})
+"
+        dirty=1
+    fi
+done
+echo "count=${role_count}"
+if [ "$role_count" -gt 0 ]; then
+    printf '%s' "$role_out"
+else
+    echo "файлов ролей не найдено — CONTEXT GAP"
+    dirty=1
+fi
+echo "правило выбора для брифа (05 §II): задача расписана в 04 и решений не требует → роль generator;"
+echo "нужны решения (открытый вопрос, незакрытая зависимость) → роль architect, он же и генерит."
+echo
+
 echo "=== ВЕРДИКТ ==="
 if [ "$dirty" -eq 0 ]; then
     echo "ЧИСТО"
