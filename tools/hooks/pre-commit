@@ -168,29 +168,43 @@ fi
 echo "срабатываний: ${check2_hits}"
 
 # ---------------------------------------------------------------------------
-# Проверка 3 — идентификатор исчез из 07_STATE.md/07_GAPS.md ⇒ появился в
-# 07_ARCHIVE.md тем же коммитом. Сравниваются МНОЖЕСТВА, не строки (ловушка 5 §M-4).
+# Проверка 3 — идентификатор исчез из ОБЪЕДИНЕНИЯ 07_STATE.md и 07_GAPS.md ⇒
+# назван в строках, ДОБАВЛЕННЫХ в 07_ARCHIVE.md тем же коммитом. Сравниваются
+# МНОЖЕСТВА, не строки (ловушка 5 §M-4).
+#
+# Две правки против дефектов, найденных замером 2026-08-11 (ADR-035), оба —
+# ложные отказы на легитимном входе, а не пропуски:
+#  (1) ОБЪЕДИНЕНИЕ, а не пофайлово. Идентификатор, ушедший из реестра, но живой
+#      в состоянии, задачей-к-архивации не является. Живой случай: закрытая
+#      строка вопроса упоминала действующее решение и открытую задачу, и хук
+#      требовал архивировать их обе.
+#  (2) Сторона архива берётся из ДОБАВЛЕННЫХ СТРОК диффа, а не из разницы
+#      множеств «до/после». Идентификатор, уже упоминавшийся в архиве прозой
+#      раньше, в разницу множеств не попадает НИКОГДА, поэтому прежнее
+#      требование было для него неисполнимо в принципе.
 # ---------------------------------------------------------------------------
 echo
 echo "-- Проверка 3: исчезнувший идентификатор ⇒ архив тем же коммитом --"
 check3_hits=0
-archive_before_ids="$(extract_ids "$(head_content 07_ARCHIVE.md)")"
-archive_after_ids="$(extract_ids "$(staged_content 07_ARCHIVE.md)")"
-archive_added_ids="$(comm -13 <(sort -u <<< "$archive_before_ids") <(sort -u <<< "$archive_after_ids") 2>/dev/null)"
-for src in 07_STATE.md 07_GAPS.md; do
-    before_ids="$(extract_ids "$(head_content "$src")")"
-    after_ids="$(extract_ids "$(staged_content "$src")")"
-    removed_ids="$(comm -23 <(sort -u <<< "$before_ids") <(sort -u <<< "$after_ids") 2>/dev/null)"
-    [ -z "$removed_ids" ] && continue
+archive_added_text="$(added_lines_numbered "$(staged_diff 07_ARCHIVE.md)" | cut -f2-)"
+archive_added_ids="$(extract_ids "$archive_added_text")"
+union_before="$(head_content 07_STATE.md)
+$(head_content 07_GAPS.md)"
+union_after="$(staged_content 07_STATE.md)
+$(staged_content 07_GAPS.md)"
+before_ids="$(extract_ids "$union_before")"
+after_ids="$(extract_ids "$union_after")"
+removed_ids="$(comm -23 <(sort -u <<< "$before_ids") <(sort -u <<< "$after_ids") 2>/dev/null)"
+if [ -n "$removed_ids" ]; then
     while IFS= read -r id; do
         [ -z "$id" ] && continue
         if ! grep -qxF "$id" <<< "$archive_added_ids"; then
-            echo "НЕ ПРОШЛО: ${id} пропал из ${src}, но не добавлен в 07_ARCHIVE.md тем же коммитом"
+            echo "НЕ ПРОШЛО: ${id} пропал из 07_STATE.md и 07_GAPS.md разом, но не назван в строках, добавленных в 07_ARCHIVE.md тем же коммитом"
             check3_hits=$((check3_hits+1))
             fail
         fi
     done <<< "$removed_ids"
-done
+fi
 echo "срабатываний: ${check3_hits}"
 
 # ---------------------------------------------------------------------------
