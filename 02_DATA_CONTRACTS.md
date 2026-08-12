@@ -38,7 +38,7 @@ DDL — источник истины в `/sql/ddl/`. Ключевые конт�
 | Canonical поле | Таблица.колонка Firebird | Тип | Преобразование | Примечание |
 |---|---|---|---|---|
 | contract_id | `CONTRACTS.CONTRACT_ID` | INTEGER | — | |
-| contract_num | `CONTRACTS.CONTRACT_NUM` | VARCHAR(320) | — | номер договора, не suррогат |
+| contract_num | `CONTRACTS.CONTRACT_NUM` | VARCHAR(320) | — | номер договора, не суррогат |
 | vehicle_id (VIN) | ⏳ | | нормализация: strip, upper, без пробелов/дефисов | суррогат при отсутствии: `VEH-{YYYYMMDD}-{госномер}`, флаг no_vin — вне scope T-0-3b |
 | issue_date | `CONTRACTS.CONTRACT_DATE` | DATE | — | дата выдачи; НЕ отражает дату последнего продления (`ADR-010 v3` последствие, `T-0-3b`) |
 | due_date (плановое) | `CONTRACTS.PLAN_CLOSE_DATE` | DATE | — | «от последней операции» — переживает продления, в отличие от `issue_date` |
