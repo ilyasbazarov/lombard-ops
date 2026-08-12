@@ -8,12 +8,12 @@
 | PROJECT_ID | `project-c451b48a-07ae-4de4-961` |
 | PROJECT_NUMBER | `450925595005` |
 | Имя проекта | My First Project (косметика, не менять — так сойдёт) |
-| Владелец | корпоративный аккаунт клиента; Ilyas — editor |
+| Владелец | корпоративный аккаунт клиента; Ilyas — **owner** (замер 2026-08-12, `T-0-7` шаг 1: `gcloud projects get-iam-policy` печатает `roles/owner` + `roles/resourcemanager.projectMover`). Прежняя запись «editor» не подтвердилась; `00_CHARTER.md §4` называет то же самое и STABLE-документ правкой этого исполнителя не тронут — расхождение открыто до ADR архитектора |
 | Регион ресурсов | **`europe-west3`** (Франкфурт) — решение владельца 2026-08-12, `ADR-046`; `Q-2` закрыт. Меняется только переездом |
-| Датасет BQ | `lombard_ops` ⏳ создать в `europe-west3` (T-0-7) |
-| Бакеты | `${PROJECT_ID}-{photos,config,cfsource}` ⏳ (T-0-7) |
-| SA конвейера | `lombard-pipeline@` ⏳ (T-0-7) |
-| Secret Manager | ⏳ секреты: telegram-bot-token, firebird-readonly-creds, chat_id (T-0-7) |
+| Датасет BQ | `lombard_ops`, `europe-west3` — создан 2026-08-12 (`T-0-7`). Шесть таблиц (не семь — `02 §2`, поправка счёта коммитом `2c32c3b`): `loans_raw`, `events` (`PARTITION BY DATE(timestamp)`, `CLUSTER BY contract_id`), `offers`, `pricing_snapshots`, `vehicle_catalog`, `assessments`. `bq show` печатает `"location": "europe-west3"` — замер `reference/T-0-7_gcp_foundation_measurement_2026-08-12.md` |
+| Бакеты | `${PROJECT_ID}-{photos,config,cfsource}` — созданы 2026-08-12 (`T-0-7`) в `europe-west3`, единый доступ на уровне бакета, `public_access_prevention: enforced` |
+| SA конвейера | `lombard-pipeline@${PROJECT_ID}.iam.gserviceaccount.com` — создан 2026-08-12 (`T-0-7`). Роли: `WRITER` на датасете `lombard_ops` (dataset ACL — `bq add-iam-policy-binding` недоступен, `This feature requires allowlisting`, метод в `scripts/gcp_foundation.sh`), `roles/storage.objectAdmin` на всех трёх бакетах, `roles/secretmanager.secretAccessor` на проекте. Project-level `editor`/`owner` не выданы. Ключ SA этой задачей НЕ создан — заводится `T-0-8` |
+| Secret Manager | `telegram-bot-token`, `firebird-readonly-creds`, `chat_id` — созданы 2026-08-12 (`T-0-7`) в `europe-west3`, по одной плейсхолдерной версии каждый. Реальные значения не заведены и не запрошены |
 
 ## Контур клиента (ERP)
 | Факт | Значение | Где лежит секрет |
