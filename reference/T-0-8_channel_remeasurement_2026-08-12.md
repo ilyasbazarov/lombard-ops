@@ -83,3 +83,46 @@ Google на заведомо недействительное тело запр�
 `*.googleapis.com`, и оба измеренных эндпоинта живы. Но правило «не считать сделанным без лога»
 действует, поэтому остаток закрывается внутри `T-0-8` тем же скриптом с заменой значения `$h` —
 до первого чтения секрета, а не после.
+
+## Остаток закрыт — `secretmanager.googleapis.com`, 2026-08-12 (`ADR-048`, ПОПРАВКА 1 п.2)
+
+Скрипт — тот же `scripts/probe_oauth.ps1` с `$h = 'secretmanager.googleapis.com'`,
+`$path = '/'` (правка внесена в файл скрипта, поведение по умолчанию для `oauth2`/`/token`
+не изменилось — см. комментарий в шапке скрипта). Класс B, сервер клиента, отдельная
+карточка подтверждения. Прогнал владелец по RDP: `powershell -ExecutionPolicy Bypass
+-File C:\Temp\probe_secretmanager.ps1`. Вывод перенесён дословно.
+
+```
+===== ПРОБА A: список имён (SAN) в сертификате secretmanager.googleapis.com =====
+SUBJECT : CN=upload.video.google.com
+ISSUER  : CN=WE2, O=Google Trust Services, C=US
+SAN RAW : DNS-имя=upload.video.google.com, DNS-имя=*.clients.google.com, DNS-имя=*.docs.google.com,
+DNS-имя=*.drive.google.com, DNS-имя=*.gdata.youtube.com, DNS-имя=*.googleapis.com,
+DNS-имя=*.photos.google.com, DNS-имя=*.youtube-3rd-party.com, DNS-имя=upload.google.com,
+DNS-имя=*.upload.google.com, DNS-имя=upload.youtube.com, DNS-имя=*.upload.youtube.com,
+DNS-имя=uploads.stage.gdata.youtube.com, DNS-имя=bg-call-donation.goog,
+DNS-имя=bg-call-donation-alpha.goog, DNS-имя=bg-call-donation-canary.goog,
+DNS-имя=bg-call-donation-dev.goog
+СОДЕРЖИТ secretmanager.googleapis.com : False
+СОДЕРЖИТ *.googleapis.com      : True
+
+===== ПРОБА B: запрос на secretmanager.googleapis.com/ со ШТАТНОЙ проверкой сертификата (без переопределения валидатора) =====
+HTTP    : 404
+<!DOCTYPE html>... (тело страницы google 404, стандартное для GET / на API-эндпоинте, не транспортная ошибка)
+```
+
+**Вердикт — по правилу `ADR-048`: решает штатный механизм (проба B), а не самодельное
+сравнение подстроки SAN (проба A).** Проба B выполнялась без переопределения валидатора
+сертификата и вернула HTTP-ответ (`404`), а не транспортный отказ — значит цепочка
+сертификата и имя хоста `secretmanager.googleapis.com` приняты штатным .NET-валидатором.
+`404` на `GET /` для API-эндпоинта Google — ожидаемое тело, не признак сбоя транспорта или
+сертификата (тот же класс ответа, что и `400` на `/token` в пробе для `oauth2` выше). Проба A
+здесь ровно то же самое, что и для `oauth2.googleapis.com`: сертификат обслуживается по SNI с
+чужим `CN` (`upload.video.google.com`), но покрыт тем же `*.googleapis.com` в списке SAN —
+диагностика, не вердикт.
+
+**Итог: `secretmanager.googleapis.com` канал пригоден.** Остаток связности, названный в
+предыдущем разделе этого файла, закрыт. Все три эндпоинта, нужные агенту
+(`storage.googleapis.com`, `oauth2.googleapis.com`, `secretmanager.googleapis.com`), измерены
+и живы; условие «провал здесь — стоп и вопрос архитектору» (`ADR-048`, ПОПРАВКА 1 п.2) не
+наступило.
