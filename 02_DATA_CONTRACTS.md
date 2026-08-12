@@ -30,18 +30,24 @@ DDL — источник истины в `/sql/ddl/`. Ключевые конт�
 
 Идемпотентность алертов: `idempotency_key = contract_id + event_type + date`; перед отправкой — EXISTS-проверка в `events`.
 
-## 3. Маппинг PawnShop → canonical ⏳
+## 3. Маппинг PawnShop → canonical
 
-Заполняется после T-0-2 (структура БД) и T-0-3 (маппинг). Формат:
+Заполняется после T-0-2 (структура БД) и T-0-3 (маппинг); поля начисления — по T-0-3b
+(`reference/T-0-3b_accrual_params_measurement_2026-08-12.md`). Формат:
 
 | Canonical поле | Таблица.колонка Firebird | Тип | Преобразование | Примечание |
 |---|---|---|---|---|
-| contract_id | ⏳ | | | |
-| vehicle_id (VIN) | ⏳ | | нормализация: strip, upper, без пробелов/дефисов | суррогат при отсутствии: `VEH-{YYYYMMDD}-{госномер}`, флаг no_vin |
-| issue_date / due_date | ⏳ | | | |
-| loan_amount | ⏳ | | | |
-| rate / пени-правила | ⏳ | | | нужны для balance_amount (ADR-006) |
-| renewals-механизм | ⏳ | | | T-0-4 |
+| contract_id | `CONTRACTS.CONTRACT_ID` | INTEGER | — | |
+| contract_num | `CONTRACTS.CONTRACT_NUM` | VARCHAR(320) | — | номер договора, не suррогат |
+| vehicle_id (VIN) | ⏳ | | нормализация: strip, upper, без пробелов/дефисов | суррогат при отсутствии: `VEH-{YYYYMMDD}-{госномер}`, флаг no_vin — вне scope T-0-3b |
+| issue_date | `CONTRACTS.CONTRACT_DATE` | DATE | — | дата выдачи; НЕ отражает дату последнего продления (`ADR-010 v3` последствие, `T-0-3b`) |
+| due_date (плановое) | `CONTRACTS.PLAN_CLOSE_DATE` | DATE | — | «от последней операции» — переживает продления, в отличие от `issue_date` |
+| loan_amount | `CONTRACTS.DEPOSIT_SUM` | NUMERIC(scale -2) | ÷100 → главная единица | коп.; на снятых договорах числовое значение практически совпадает с $ на экране вендора — требует отдельного подтверждения валюты, не факт |
+| rate (проценты) | `CONTRACTS_TERMS.DEPOSIT_PERC` | NUMERIC(scale -5) | месячная ставка, % | день-каунт от `issue_date` НЕ подтверждён оракулом — `T-0-3b_oracle_reconciliation_2026-08-12.md` |
+| пени-правила | `CONTRACTS_TERMS.PENALTY_PERC`, `PENALTY_DAYS`, `IS_PENAL_FROM_RET_SUM` | см. измерение | | точка отсчёта просрочки и механика разового штрафа — не подтверждены оракулом, два кандидата в измерении |
+| хранение (STORAGE) | `CONTRACTS_TERMS.STORAGE_TYPE`, `STORAGE_VAL`, `STORAGE_MIN_DAYS`, `IS_STORAGE_STOP_W_PEN` | см. измерение | | компонента `ADR-010 v3`; период начисления НЕ выбран — два кандидата, оракул не сошёлся |
+| страховка (INSURE) | `CONTRACTS_TERMS.INSURE_TYPE`, `INSURE_VAL`, `INSURE_MIN_DAYS` | см. измерение | | на замеренных 98 активных договорах — везде ноль (`INSURE_VAL=0`) |
+| renewals-механизм | ⏳ | | | T-0-4; блокирует финализацию `issue_date`/`rate`-формулы — см. вывод `T-0-3b_oracle_reconciliation_2026-08-12.md` |
 
 Правило: канонизация — единственное место преобразований; ниже по конвейеру данные уже чистые.
 
