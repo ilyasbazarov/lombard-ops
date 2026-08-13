@@ -249,3 +249,121 @@ w32tm /resync
 существования провайдера (шаг 5-А п. 4, не исполнен); отрицательный случай обмена JWT на токен
 (пункт 7 состава) — ждёт того же. Шаг 5-Б в части «ключи, JWKS, Python, служба времени» закрыт этой
 записью; часть «конфигурация учётных данных» и «отрицательный случай» остаются открытыми до 5-А п.4.
+
+---
+
+## Шаг 5-А, пункты 4–5 — OIDC-провайдер и привязка роли (2026-08-13)
+
+**Класс задачи:** B. **Кем исполнено:** ГЛАВНОЙ сессией (не суб-агентом), локальным authenticated
+`gcloud` — владелец подтвердил карточку. Объект — тот же проект `project-c451b48a-07ae-4de4-961`
+(номер `450925595005`), локация пула — `global`. Скрипт-источник — команды
+`step4_create_provider`/`step5_bind_role` из `scripts/T-0-8_step5a_federation_pool.sh`. Вход
+JWKS — файл `C:\LombardAgent\keys\jwks.json`, полученный на шаге 5-Б (раздел выше), содержимое
+сверено ниже по `kid` и модулю.
+
+### Пункт 4 — создание провайдера
+
+Дословный вывод:
+
+```
+=== создание провайдера ===
+Created workload identity pool provider [lombard-agent-jwt-provider].
+
+=== describe провайдера ===
+attributeCondition: assertion.sub == 'lombard-agent-erp01'
+attributeMapping:
+  google.subject: assertion.sub
+description: 'T-0-8: OIDC-провайдер для самоподписанного JWT агента на сервере ERP (ADR-050, ADR-051)'
+displayName: Lombard agent JWT provider
+name: projects/450925595005/locations/global/workloadIdentityPools/lombard-agent-federation-pool/providers/lombard-agent-jwt-provider
+oidc:
+  issuerUri: https://erp-agent.lombard-ops.invalid
+  jwksJson: |-
+    {
+      "keys": [{
+        "kty": "RSA", "alg": "RS256", "use": "sig", "kid": "lombard-agent-20260813",
+        "n": "sAjRj2yWNrtbc9eBTp_BX0jWfCG68-tMtBqMrB-RCRYPZDLyWrRVVhdhIq9dlLLSI0n663XM8OevL4_tOxfxL6qrYaJ6VU9PnqATJtl7_1bJgaZ89HDlXMJUNY6qitZHv7KMH9WTI8ZK87clvoh5_5Jov_DqsR169fW9SqgI-QTQMUXaVKseDO9oSjLfR6MziaLrwb4jSufksLAo2SkEewJb0T1YDlo3jOkO6s-hct1aviW3DH3VgowsTCjObJiTJV7EB0SGCaHgXsyuC2Cg76Im6eHbp7OmGrdvPK4toRsVDUbzrcoMxSnurNrBMOTBLTOh4Cpxd4IFtFqPbaEyCw",
+        "e": "AQAB"
+      }]
+    }
+state: ACTIVE
+```
+
+**Вердикт пункта 4:**
+
+- Провайдер `lombard-agent-jwt-provider` создан, `describe` печатает `state: ACTIVE` —
+  положительный факт, не код возврата.
+- `issuerUri: https://erp-agent.lombard-ops.invalid` — сверено побуквенно со значением из
+  `ADR-051` (`briefs/T-0-8.md`, ПОПРАВКА 4: `https://erp-agent.lombard-ops.invalid`) — совпадает.
+  То же значение обязано стоять claim'ом `issuer` в `connector/agent/jwt_signer.py` (шаг 5-Б п. 3,
+  `JwtSigningConfig`) — сверка обеих строк на сервере остаётся пунктом приёмки шага 6/7, этой
+  записью не закрывается (провайдер и файл конфигурации на сервере — разные объекты).
+- **Гипотеза архитектора подтверждена ФАКТОМ, не предположением:** значение `--issuer-uri` со
+  схемой `https` и TLD `.invalid`, не разрешаемым в сети, принято платформой без ошибки —
+  `create-oidc` не отбил команду требованием достижимости или документа обнаружения. Порядок
+  отступления `ADR-051` п. 6 (домен клиента, домен подрядчика, туннель) не понадобился.
+- `jwksJson` в провайдере сверен с JWKS-файлом, экспортированным на шаге 5-Б, по обоим полям,
+  различающим ключ: `kid: lombard-agent-20260813` — совпадает; значение `n` (модуль) —
+  побайтово идентично строке из раздела «Шаг 5-Б» этого артефакта (сверка проведена программно,
+  результат `match: True`). Один ключ в массиве `keys`, лишних записей нет.
+- `attributeCondition: assertion.sub == 'lombard-agent-erp01'` — совпадает со значением `sub`,
+  назначенным `07_STATE` (`lombard-agent-erp01`) и с тем же значением, которое обязано стоять в
+  `LOMBARD_AGENT_SUBJECT` конфига агента на сервере (шаг 6).
+- `attributeMapping: google.subject: assertion.sub` — как предписано брифом (шаг 5-А п. 4).
+
+### Пункт 5 — привязка роли
+
+Дословный вывод:
+
+```
+=== привязка роли ===
+Updated IAM policy for serviceAccount [lombard-pipeline@project-c451b48a-07ae-4de4-961.iam.gserviceaccount.com].
+bindings:
+- members:
+  - principal://iam.googleapis.com/projects/450925595005/locations/global/workloadIdentityPools/lombard-agent-federation-pool/subject/lombard-agent-erp01
+  role: roles/iam.workloadIdentityUser
+etag: BwZY7acdC7E=
+
+=== проверка привязки (get-iam-policy) ===
+bindings:
+- members:
+  - principal://iam.googleapis.com/projects/450925595005/locations/global/workloadIdentityPools/lombard-agent-federation-pool/subject/lombard-agent-erp01
+  role: roles/iam.workloadIdentityUser
+etag: BwZY7acdC7E=
+```
+
+**Вердикт пункта 5:**
+
+- IAM-политика `lombard-pipeline@project-c451b48a-07ae-4de4-961.iam.gserviceaccount.com` несёт
+  РОВНО одну привязку — `roles/iam.workloadIdentityUser` на member
+  `principal://iam.googleapis.com/projects/450925595005/locations/global/workloadIdentityPools/lombard-agent-federation-pool/subject/lombard-agent-erp01`.
+  Повторный `get-iam-policy` (второй вывод) подтверждает ту же запись тем же `etag` — политика не
+  менялась между записью и проверкой.
+- Member ограничен ЕДИНСТВЕННЫМ subject (`lombard-agent-erp01`) внутри конкретного пула — не весь
+  пул и не более широкий принципал.
+- **Новых ролей `lombard-pipeline@` не добавлено:** до этого действия сервисный аккаунт нёс роли,
+  названные `T-0-7` (`11_INFRA_FACTS.md`: `WRITER` на датасете, `roles/storage.objectAdmin` на трёх
+  бакетах, `roles/secretmanager.secretAccessor`) — `roles/iam.workloadIdentityUser` встаёт РЯДОМ,
+  как единственную запись политики предъявляет вывод `get-iam-policy`, полный список ролей SA этой
+  записью не проверялся отдельно (он не менялся этим действием, `add-iam-policy-binding` не трогает
+  чужие привязки).
+
+### Итог шага 5-А — ВСЕ ПЯТЬ ПУНКТОВ ЗАКРЫТЫ
+
+| Пункт | Исход |
+|---|---|
+| 1 (allowedPolicyMemberDomains) | Не действует, `allowAll: true` — не блокирует (раздел выше) |
+| 2 (iamcredentials/sts) | `sts.googleapis.com` включён явно (раздел выше) |
+| 3 (пул федерации) | Создан, `state: ACTIVE`, `lombard-agent-federation-pool` (раздел выше) |
+| 4 (провайдер OIDC) | Создан, `state: ACTIVE`, `issuerUri` совпадает с `ADR-051` дословно, JWKS совпадает с сервером по `kid` и модулю |
+| 5 (role binding) | `roles/iam.workloadIdentityUser` на `lombard-pipeline@`, member — принципал ровно subject `lombard-agent-erp01`, без лишних прав |
+
+**Шаг 5-А брифа `T-0-8` ПОЛНОСТЬЮ ЗАКРЫТ.** Откат (не исполнен, зафиксирован на случай
+необходимости): `gcloud iam service-accounts remove-iam-policy-binding
+lombard-pipeline@project-c451b48a-07ae-4de4-961.iam.gserviceaccount.com --role=roles/iam.workloadIdentityUser --member="principal://iam.googleapis.com/projects/450925595005/locations/global/workloadIdentityPools/lombard-agent-federation-pool/subject/lombard-agent-erp01"`,
+`gcloud iam workload-identity-pools providers delete lombard-agent-jwt-provider --workload-identity-pool=lombard-agent-federation-pool --location=global --project=project-c451b48a-07ae-4de4-961`,
+`gcloud iam workload-identity-pools delete lombard-agent-federation-pool --location=global --project=project-c451b48a-07ae-4de4-961`.
+
+**Следующий шаг брифа:** 5-В — запись пароля `LOMBARD_RO` в секрет `firebird-readonly-creds`
+(класс B, облако), затем шаги 6–7 (установка службы на сервер, генерация `create-cred-config`,
+реальный прогон агента с предъявлением обмена JWT на токен, включая отрицательный случай).
