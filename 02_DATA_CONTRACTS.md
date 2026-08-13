@@ -24,7 +24,7 @@ DDL — источник истины в `/sql/ddl/`. Ключевые конт�
 | `offers` | offer_id, contract_id, vehicle_id, offer_date, buyer_contact, offer_amount, vs_floor, decision, decided_by, decided_at, tg_message_id | append only |
 | `pricing_snapshots` | contract_id, calc_date, balance_amount, realization_price, floor_price, floor_pct, depreciation_coeff, days_since_default | снапшот в день на займ в 🔴 |
 | `vehicle_catalog` | make, model, liquidity_class, ltv_max, buyout_price, updated_at | справочник ликвидности; редактируется через /catalog |
-| `assessments` | assessment_id, contract_id, vehicle_id, make, model, vin, year, mileage, *_discount, total_discount, base_price, max_loan, photos_gcs_path, assessor, created_at | результат формы осмотра |
+| `assessments` | assessment_id, contract_id, vehicle_id, make, model, vin, year, mileage, total_discount, base_price, max_loan, photos_gcs_path, assessor, created_at **+ набор применённых факторов записью** (идентификатор фактора, значение, применённый вес) | результат формы осмотра. **Wildcard `*_discount` снят `ADR-058`:** фиксированных колонок по факторам не будет — факторы живут настраиваемым справочником, поэтому перечня колонок не существует в принципе. Физический вид набора (вложенная запись, отдельная таблица, JSON) выбирает `T-2-0` |
 
 `event_type` enum: IMPORT, ASSESSMENT, STATUS_CHANGE, ALERT_SENT, OFFER_RECEIVED, DECISION_MADE, PRE_MARKETING_START, REALIZATION_START.
 
@@ -54,4 +54,4 @@ DDL — источник истины в `/sql/ddl/`. Ключевые конт�
 ## 4. Конфиги (GCS `${PROJECT_ID}-config`)
 
 - `mapping.json` — маппинг §3 + эталон отпечатка схемы Firebird (guard).
-- `config.json` — бизнес-пороги: alert_days, floor_pct по классам, depreciation_per_10_days, staleness_threshold_hours, chat_id участников. Панель управления Исы: правка файла = смена правил без деплоя.
+- `config.json` — бизнес-пороги: alert_days, floor_pct по классам, depreciation_per_10_days, staleness_threshold_hours, chat_id участников. Панель управления Исы: правка файла = смена правил без деплоя. **Значения объявлены боевыми `ADR-057`** (дефолты `03 §1` и `03 §4`, `Q-5` закрыт); `staleness_threshold_hours` = **26** — назначено решением, нигде в репозитории не было и угадыванию не подлежало.
