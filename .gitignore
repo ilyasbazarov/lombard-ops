@@ -8,3 +8,6 @@ worktrees/
 __pycache__/
 .venv/
 node_modules/
+data_inbox/*
+!data_inbox/vehicle_catalog.template.csv
+!data_inbox/.gitkeep
