@@ -26,7 +26,9 @@ DDL — источник истины в `/sql/ddl/`. Ключевые конт�
 | `vehicle_catalog` | make, model, liquidity_class, ltv_max, buyout_price, comment, updated_at | справочник ликвидности. **Источник и место ведения — лист «Справочник»** (`ADR-060`), эта таблица — рабочая копия: пишет её импорт `tools/catalog_import.py`, экран `/catalog` в v1 только читает. Производная `LTV × скупочная база` НЕ хранится — считается (принцип 1) |
 | `assessments` | assessment_id, contract_id, vehicle_id, make, model, vin, year, mileage, total_discount, base_price, max_loan, photos_gcs_path, assessor, created_at **+ набор применённых факторов записью** (идентификатор фактора, значение, применённый вес) | результат формы осмотра. **Wildcard `*_discount` снят `ADR-058`:** фиксированных колонок по факторам не будет — факторы живут настраиваемым справочником, поэтому перечня колонок не существует в принципе. Физический вид набора (вложенная запись, отдельная таблица, JSON) выбирает `T-2-0` |
 
-`event_type` enum: IMPORT, ASSESSMENT, STATUS_CHANGE, ALERT_SENT, OFFER_RECEIVED, DECISION_MADE, PRE_MARKETING_START, REALIZATION_START.
+`event_type` enum: IMPORT, ASSESSMENT, STATUS_CHANGE, ALERT_SENT, OFFER_RECEIVED, DECISION_MADE, PRE_MARKETING_START, REALIZATION_START, **POLICY_DEVIATION**.
+
+`POLICY_DEVIATION` заведён `ADR-063`: залог принят вне конвенции системы — объекта нет в справочнике ликвидности либо выданная сумма выше `max_loan` последнего осмотра. **Отдельный тип, а не флаг внутри события осмотра:** история предупреждений обязана быть счётной и фильтруемой без разбора payload. Событие информационное: кнопок не несёт, ответа не ждёт, работу не блокирует.
 
 Идемпотентность алертов: `idempotency_key = contract_id + event_type + date`; перед отправкой — EXISTS-проверка в `events`.
 

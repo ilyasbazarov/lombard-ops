@@ -11,3 +11,5 @@ node_modules/
 data_inbox/*
 !data_inbox/vehicle_catalog.template.csv
 !data_inbox/.gitkeep
+audit/*
+!audit/README.md
