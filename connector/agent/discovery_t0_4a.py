@@ -48,10 +48,26 @@ connector/agent/discovery_t0_4a.py — T-0-4a, шаг 1 (класс A, лока�
 from __future__ import annotations
 
 import logging
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Sequence
 
-from connector.agent.access_point import access_point
+# Тот же приём, что `run_daily.py` (тоже `connector/agent/<файл>.py`, тот же
+# уровень вложенности): при запуске ПРЯМО как скрипт по абсолютному пути
+# (`python C:\LombardAgent\code\connector\agent\discovery_t0_4a.py`, а не
+# `python -m connector.agent.discovery_t0_4a`) интерпретатор кладёт в
+# `sys.path[0]` каталог САМОГО файла (`connector/agent/`), а не корень
+# репозитория — импорт `connector.agent.access_point` тогда падает
+# `ModuleNotFoundError: No module named 'connector'`, потому что пакет
+# `connector` с этой точки не виден. Найдено реальным прогоном на сервере
+# ERP 2026-08-18 (`t0_4a_discovery_20260818_005757.err.log`, шаг 4 брифа
+# T-0-4a): у `run_daily.py` та же схема запуска (обёртка вызывает его тоже
+# абсолютным путём), и там это решено ровно этой строкой — тем же способом
+# и здесь, а не вторым отдельным механизмом.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from connector.agent.access_point import access_point  # noqa: E402
 
 logger = logging.getLogger("lombard.agent.discovery_t0_4a")
 
