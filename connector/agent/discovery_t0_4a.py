@@ -169,12 +169,13 @@ REOPEN_ACTIVE_WITH_PREV = NamedQuery(
 REOPEN_MAX_CHAIN_LENGTH = NamedQuery(
     name="reopen_max_chain_length",
     sql=(
-        "WITH RENEW_CHAIN AS ("
-        "SELECT CONTRACT_ID, CONTRACT_ID AS ROOT_ID, 1 AS DEPTH "
+        "WITH RENEW_CHAIN (CONTRACT_ID, ROOT_ID, DEPTH) AS ("
+        "SELECT CONTRACT_ID, CONTRACT_ID, 1 "
         "FROM CONTRACTS WHERE ID_PREV_CONTRACT IS NULL "
         "UNION ALL "
         "SELECT c.CONTRACT_ID, ch.ROOT_ID, ch.DEPTH + 1 "
-        "FROM CONTRACTS c JOIN RENEW_CHAIN ch ON c.ID_PREV_CONTRACT = ch.CONTRACT_ID"
+        "FROM CONTRACTS c JOIN RENEW_CHAIN ch ON c.ID_PREV_CONTRACT = ch.CONTRACT_ID "
+        "WHERE ch.DEPTH < 500"
         ") "
         "SELECT MAX(DEPTH) AS MAX_CHAIN_LENGTH FROM RENEW_CHAIN"
     ),
@@ -182,9 +183,26 @@ REOPEN_MAX_CHAIN_LENGTH = NamedQuery(
         "шаг 6: максимальная длина цепочки переоткрытий (Firebird 2.5 поддерживает "
         "WITH-рекурсию без ключевого слова RECURSIVE). Имя CTE намеренно НЕ 'CHAIN' — "
         "офлайн-тест (шаг 2) показал, что sqlparse читает 'CHAIN' как Keyword, а не "
-        "Identifier, и Statement.get_type() из-за этого возвращает 'UNKNOWN' вместо "
-        "'SELECT'; это дефект имени CTE в тексте запроса, не дефект белого списка — "
-        "исправлено переименованием, а не подгонкой валидатора."
+        "Identifier (см. историю правки ниже). "
+        "ВТОРАЯ правка (2026-08-18, реальный прогон шага 6 на сервере): исходная форма "
+        "БЕЗ явного списка колонок CTE и БЕЗ ограничения глубины упала на сервере "
+        "SQLCODE -104 'CTE RENEW_CHAIN has cyclic dependencies' — это ошибка ЭТАПА "
+        "ПОДГОТОВКИ запроса (PREPARE), а не выполнения: движок отклонил текст ДО "
+        "чтения хотя бы одной строки, значит проверялась СТРУКТУРА запроса, а не "
+        "данные CONTRACTS — реальный цикл A->B->...->A в ID_PREV_CONTRACT технически "
+        "не мог быть тому причиной (компилятор его увидеть не может, не читав строк). "
+        "Причина осталась НЕ подтверждена документацией дословно (Firebird 2.5.9 "
+        "стар и капризен к форме рекурсивных CTE) — правка ниже не выдаётся за "
+        "объяснение, только как рабочее исправление: (1) явный список колонок CTE "
+        "`(CONTRACT_ID, ROOT_ID, DEPTH)` вместо алиасов `AS` внутри SELECT — форма "
+        "ближе к канонической из руководства Firebird; (2) `WHERE ch.DEPTH < 500` в "
+        "рекурсивной ветви — стандартная защита от неограниченной рекурсии, ДАЁТ "
+        "заодно верхнюю границу ответа (при исчерпании 500 шагов результат станет "
+        "нижней оценкой реальной длины цепочки, а не точным числом — это будет видно "
+        "по значению `MAX_CHAIN_LENGTH`, близкому к 500). Обе правки внесены вместе "
+        "(риск обеих нулевой, чтения не меняются), не по одной, для экономии "
+        "серверных заходов — если понадобится изолировать, какая именно сняла отказ, "
+        "это отдельный последующий диагностический запуск, не входит в эту правку."
     ),
 )
 
