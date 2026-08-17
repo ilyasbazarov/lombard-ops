@@ -12,6 +12,7 @@ connector/agent/gcs_upload.py — T-0-8, шаг 4
 from __future__ import annotations
 
 import logging
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,10 +48,16 @@ class RetryPolicy:
 def _default_gcs_client() -> Any:
     """Ленивый импорт: `google-cloud-storage` нужен на сервере агента, не в каждой
     сессии, которая читает этот модуль (тот же разрез, что у `fdb` в
-    `access_point.py`)."""
+    `access_point.py`).
+
+    `project` передаётся явно из `PROJECT_ID`: федеративные учётные данные
+    (`ADR-050`) — в отличие от ключа сервисного аккаунта — не несут номер проекта
+    внутри себя, `storage.Client()` без аргумента не может его определить сам
+    (`Project was not passed and could not be determined from the environment`,
+    замер шага 7 `T-0-8`, 2026-08-17)."""
     from google.cloud import storage  # type: ignore
 
-    return storage.Client()
+    return storage.Client(project=os.environ.get("PROJECT_ID"))
 
 
 def upload_bytes(

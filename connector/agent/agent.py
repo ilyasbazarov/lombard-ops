@@ -20,6 +20,7 @@ connector/agent/agent.py — T-0-8, шаг 4
 from __future__ import annotations
 
 import datetime
+import decimal
 import json
 import logging
 import os
@@ -74,6 +75,10 @@ def _json_safe(value: Any) -> Any:
         return value.isoformat()
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
+    if isinstance(value, decimal.Decimal):
+        # Строкой, не float: DEPOSIT_SUM/SUBJECT_PRICE — денежные значения,
+        # округление float исказило бы их молча.
+        return str(value)
     return value
 
 
