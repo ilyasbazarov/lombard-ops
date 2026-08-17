@@ -557,6 +557,14 @@ def run_renewal_ops(connection: Any, renewal_op_vids: Sequence[int]) -> dict[str
 # ---------------------------------------------------------------------------
 
 DEFAULT_QUERIES_FILE = r"C:\LombardAgent\control\t0_4a_next_queries.txt"
+# Тот же приём для кодов OP_VID шагов 7-8 (2026-08-18): без файла — фиксация
+# /tr задачи планировщика на шаг 7 потребовала бы обратно schtasks /change,
+# ровно то, от чего избавлялись. НЕОБЯЗАТЕЛЬНЫЙ, в отличие от файла запросов:
+# отсутствие означает «этот вызов не касается динамических запросов шагов
+# 7-8» (тот же смысл, что у пустого --renewal-op-vids раньше), а не CONTEXT GAP —
+# CONTEXT GAP наступает позже и по-другому: build_renewal_op_queries() уже
+# отказывает пустым списком, если вызывающий вправду просит динамическое имя.
+DEFAULT_RENEWAL_OP_VIDS_FILE = r"C:\LombardAgent\control\t0_4a_renewal_op_vids.txt"
 
 
 def _open_connection_like_run_daily() -> Any:
@@ -591,29 +599,61 @@ def _resolve_queries(
     return [static_by_name.get(n) or dynamic_by_name[n] for n in names]
 
 
+def _read_control_value(
+    explicit: str | None,
+    file_path: str | None,
+    default_file: str,
+    *,
+    required: bool,
+    what: str,
+) -> str:
+    """Общий читатель «явное значение ЛИБО control-файл» для `--queries` и
+    `--renewal-op-vids`. `required=True` (список запросов) — отсутствие или
+    пустота файла есть `DiscoveryConfigError`, значение не подставляется
+    молчанием. `required=False` (коды OP_VID) — отсутствие файла означает
+    «этот вызов их не касается» и возвращает пустую строку, дальнейший отказ
+    (если имя запроса всё-таки динамическое) кидает `build_renewal_op_queries`
+    самостоятельно на пустом списке — двойной защиты не заводим."""
+    if explicit:
+        return explicit
+
+    path = Path(file_path or default_file)
+    if not path.exists():
+        if required:
+            raise DiscoveryConfigError(
+                f"CONTEXT GAP: {what} не передан явно, и control-файл {path} не "
+                "существует — значение не названо ни одним из двух источников. "
+                "Не подставляется."
+            )
+        return ""
+    content = path.read_text(encoding="utf-8").strip()
+    if not content and required:
+        raise DiscoveryConfigError(
+            f"CONTEXT GAP: control-файл {path} существует, но пуст после "
+            f"strip() — {what} не назван"
+        )
+    return content
+
+
 def _read_queries_spec(args: Any) -> str:
     """Возвращает СЫРОЙ (не разобранный на имена) текст списка запросов —
     из `--queries`, если передан явно, иначе из файла (`--queries-file` или
-    `DEFAULT_QUERIES_FILE`). Ни один путь не подставляет значение по
-    умолчанию тише пустой строки: отсутствие файла или пустое содержимое —
-    именованный `DiscoveryConfigError`, не «ничего не делать»."""
-    if args.queries:
-        return args.queries
+    `DEFAULT_QUERIES_FILE`). Обязательный вход (`required=True`)."""
+    return _read_control_value(
+        args.queries, args.queries_file, DEFAULT_QUERIES_FILE, required=True, what="--queries"
+    )
 
-    file_path = Path(args.queries_file or DEFAULT_QUERIES_FILE)
-    if not file_path.exists():
-        raise DiscoveryConfigError(
-            f"CONTEXT GAP: --queries не передан, и control-файл {file_path} не "
-            "существует — какой шаг исполнять, не названо ни одним из двух "
-            "источников. Значение не подставляется."
-        )
-    content = file_path.read_text(encoding="utf-8").strip()
-    if not content:
-        raise DiscoveryConfigError(
-            f"CONTEXT GAP: control-файл {file_path} существует, но пуст после "
-            "strip() — список запросов не назван"
-        )
-    return content
+
+def _read_renewal_op_vids_spec(args: Any) -> str:
+    """То же самое для кодов `OPERATIONS.OP_VID` шагов 7-8 — НЕОБЯЗАТЕЛЬНЫЙ
+    вход (`required=False`): большинство шагов их не используют вовсе."""
+    return _read_control_value(
+        args.renewal_op_vids or None,
+        args.renewal_op_vids_file,
+        DEFAULT_RENEWAL_OP_VIDS_FILE,
+        required=False,
+        what="--renewal-op-vids",
+    )
 
 
 def cli_main(argv: Sequence[str]) -> int:
@@ -650,7 +690,17 @@ def cli_main(argv: Sequence[str]) -> int:
         help=(
             "запятая-разделённые коды OPERATIONS.OP_VID для запросов шагов 7-8 "
             "(repayment_active_with_renewal_op, renewed_portfolio_share); "
-            "пусто, если вызов их не касается"
+            "пусто/не передан — читается из control-файла (--renewal-op-vids-file), "
+            "а если и файла нет — считается, что вызов их не касается"
+        ),
+    )
+    parser.add_argument(
+        "--renewal-op-vids-file",
+        default=None,
+        help=(
+            "путь к control-файлу с кодами OP_VID (одна строка, через запятую); "
+            f"по умолчанию {DEFAULT_RENEWAL_OP_VIDS_FILE}; НЕОБЯЗАТЕЛЕН — в "
+            "отличие от --queries-file, отсутствие не CONTEXT GAP"
         ),
     )
     args = parser.parse_args(list(argv))
@@ -659,7 +709,8 @@ def cli_main(argv: Sequence[str]) -> int:
     names = [n.strip() for n in raw_spec.split(",") if n.strip()]
     if not names:
         raise DiscoveryConfigError("CONTEXT GAP: список запросов пуст после разбора — какой шаг исполнять, не названо")
-    renewal_op_vids = tuple(int(v) for v in args.renewal_op_vids.split(",") if v.strip())
+    raw_renewal = _read_renewal_op_vids_spec(args)
+    renewal_op_vids = tuple(int(v) for v in raw_renewal.split(",") if v.strip())
 
     queries = _resolve_queries(names, renewal_op_vids)
 

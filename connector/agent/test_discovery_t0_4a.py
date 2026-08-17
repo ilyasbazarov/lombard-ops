@@ -159,6 +159,36 @@ def main() -> int:
             failed += 1
             print(f"[ПРОВАЛЕНО] _read_queries_spec (пустой --queries) вернул не то: {got!r}")
 
+    # _read_renewal_op_vids_spec — тот же приём, но НЕОБЯЗАТЕЛЬНЫЙ: отсутствие
+    # файла НЕ CONTEXT GAP (в отличие от --queries), просто пустая строка.
+    ns_renewal_explicit = argparse.Namespace(renewal_op_vids="0,4", renewal_op_vids_file=None)
+    got = disc._read_renewal_op_vids_spec(ns_renewal_explicit)
+    if got == "0,4":
+        print("[пройдено]  _read_renewal_op_vids_spec: явный --renewal-op-vids побеждает файл")
+    else:
+        failed += 1
+        print(f"[ПРОВАЛЕНО] _read_renewal_op_vids_spec (явный) вернул не то: {got!r}")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        missing_renewal_file = Path(tmp) / "renewal_op_vids.txt"
+        ns_renewal_missing = argparse.Namespace(renewal_op_vids="", renewal_op_vids_file=str(missing_renewal_file))
+        got = disc._read_renewal_op_vids_spec(ns_renewal_missing)
+        if got == "":
+            print("[пройдено]  _read_renewal_op_vids_spec: отсутствующий файл — пустая строка, НЕ CONTEXT GAP (необязательный вход)")
+        else:
+            failed += 1
+            print(f"[ПРОВАЛЕНО] _read_renewal_op_vids_spec (файла нет) вернул не то: {got!r}")
+
+        renewal_file = Path(tmp) / "renewal_op_vids_present.txt"
+        renewal_file.write_text("0\n", encoding="utf-8")
+        ns_renewal_file = argparse.Namespace(renewal_op_vids="", renewal_op_vids_file=str(renewal_file))
+        got = disc._read_renewal_op_vids_spec(ns_renewal_file)
+        if got == "0":
+            print("[пройдено]  _read_renewal_op_vids_spec: без --renewal-op-vids читает control-файл")
+        else:
+            failed += 1
+            print(f"[ПРОВАЛЕНО] _read_renewal_op_vids_spec (файл) вернул не то: {got!r}")
+
     print(f"\nитого провалено: {failed}")
     return 1 if failed else 0
 
