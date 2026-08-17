@@ -1,0 +1,448 @@
+"""
+connector/agent/discovery_t0_4a.py — T-0-4a, шаг 1 (класс A, локально)
+
+Модуль замера для брифа `briefs/T-0-4a.md`. Каждый запрос идёт через единственную
+точку доступа (`connector.agent.access_point.access_point`) — здесь нет ни одного
+`cursor.execute` напрямую и ни одного второго пути к базе PawnShop.
+
+**Что этот модуль НЕ делает:** не открывает подключение сам (подключение приходит
+извне, тем же способом, что в `run_daily.py` — переменные окружения
+`LOMBARD_DB_HOST/PORT/PATH/USER/CHARSET` и Secret Manager для пароля, механизм не
+переписывается); не пишет ничего, кроме лога через `logging`; не запускается этой
+сессией против боевой базы (класс B, шаги 3 и далее брифа — отдельные карточки
+подтверждения владельца).
+
+**Санитария (`ADR-039`, дословно из брифа).** Каждый запрос ниже — либо агрегат
+(счёт, группировка, распределение), либо каталог метаданных (имена/типы колонок,
+описания из `RDB$*`), либо ограниченная выборка ДАТ без идентификаторов договора
+(пары «старый → новый» из шага 6 отдают только `CONTRACT_DATE` обеих сторон связи,
+без `CONTRACT_ID`/`CONTRACT_NUM` — печать порядковым номером выборки делает вызывающий
+код, не SQL). Ни один запрос не выбирает номер договора, имя человека или VIN как
+значение строки.
+
+**Таблицы** — исключительно из `ALLOWED_TABLES` (`access_point.py`) плюс системные
+`RDB$*`; попытка обратиться к таблице вне списка отбивается `validate_query` ДО
+отправки на сервер, а не после — это гарантия точки доступа, не этого модуля.
+
+**Два класса запросов.**
+  - `STATIC_QUERIES` — фиксированный текст, не зависящий от результата других
+    запросов. Полностью проверяется офлайн-тестом (`test_discovery_t0_4a.py`).
+  - Запросы шагов 7–8 (ветвь «Погашение» и сводная доля) ЗАВИСЯТ от того, какие
+    коды `OPERATIONS.OP_VID` по смыслу означают продление/частичное погашение —
+    этот список кодов достаём из описания колонки `OP_VID`, снятого запросом
+    `operations_structure` (тем же приёмом, что уже сработал на `CONTRACT_STATE`
+    в `T-0-3b`: справочник значений лежит текстом в `RDB$DESCRIPTION`). Значения
+    кодов НЕ угадываются здесь — `build_renewal_op_queries()` требует явный
+    непустой список `renewal_op_vids`, поданный ПОСЛЕ того, как шаг 5 брифа
+    прочитал реальное описание колонки на сервере; вызов с пустым списком кидает
+    `DiscoveryConfigError` вместо того, чтобы подставить произвольное число
+    (anti-improvisation, `CLAUDE.md`).
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from typing import Any, Sequence
+
+from connector.agent.access_point import access_point
+
+logger = logging.getLogger("lombard.agent.discovery_t0_4a")
+
+# Порог печати строк на запрос: агрегаты этой задачи (справочники, распределения,
+# короткие выборки) по конструкции малы — если запрос вернул больше, это сигнал,
+# что запрос не тот агрегат, каким задуман, а не повод печатать тысячи строк.
+_MAX_ROWS_PRINTED = 200
+
+
+class DiscoveryConfigError(Exception):
+    """Вход, нужный для построения запроса, не предъявлен — значение не
+    подставляется угадыванием (anti-improvisation, CLAUDE.md)."""
+
+
+@dataclass(frozen=True)
+class NamedQuery:
+    name: str
+    sql: str
+    params: tuple = ()
+    note: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Шаг 4 брифа — положительные контроли первого прогона (сам access_point на
+# каждый вызов уже печатает MON$READ_ONLY положительным фактом — третья
+# величина приёмки получается автоматически, отдельного запроса под неё не
+# заводится).
+# ---------------------------------------------------------------------------
+
+ENGINE_VERSION = NamedQuery(
+    name="engine_version",
+    sql="SELECT RDB$GET_CONTEXT('SYSTEM', 'ENGINE_VERSION') AS ENGINE_VERSION FROM RDB$DATABASE",
+    note="шаг 4: версия движка — контроль 'содержит 2.5'",
+)
+
+ROW_COUNT_CONTROL = NamedQuery(
+    name="row_count_control",
+    sql="SELECT COUNT(*) AS CNT FROM DEPOSIT_TYPES",
+    note="шаг 4: счёт строк одной разрешённой (маленькой, справочной) таблицы",
+)
+
+# ---------------------------------------------------------------------------
+# Шаг 5 брифа — устройство журнала операций.
+# ---------------------------------------------------------------------------
+
+OPERATIONS_STRUCTURE = NamedQuery(
+    name="operations_structure",
+    sql=(
+        "SELECT f.RDB$FIELD_NAME AS COLUMN_NAME, "
+        "t.RDB$FIELD_TYPE AS FIELD_TYPE, "
+        "t.RDB$FIELD_LENGTH AS FIELD_LENGTH, "
+        "t.RDB$FIELD_SCALE AS FIELD_SCALE, "
+        "f.RDB$DESCRIPTION AS COLUMN_DESCRIPTION "
+        "FROM RDB$RELATION_FIELDS f "
+        "JOIN RDB$FIELDS t ON t.RDB$FIELD_NAME = f.RDB$FIELD_SOURCE "
+        "WHERE f.RDB$RELATION_NAME = ? "
+        "ORDER BY f.RDB$FIELD_POSITION"
+    ),
+    params=("OPERATIONS",),
+    note=(
+        "шаг 5: состав OPERATIONS — имена, типы, описания на русском из метаданных "
+        "(тот же приём, что T-0-3b на CONTRACT_STATE: справочник значений колонки "
+        "часто лежит текстом в RDB$DESCRIPTION — здесь ищем то же для OP_VID)"
+    ),
+)
+
+OPERATION_TYPE_COUNTS = NamedQuery(
+    name="operation_type_counts",
+    sql="SELECT OP_VID, COUNT(*) AS CNT FROM OPERATIONS GROUP BY OP_VID ORDER BY OP_VID",
+    note="шаг 5: справочник типов операций агрегатами — какие есть и сколько записей каждого",
+)
+
+# ---------------------------------------------------------------------------
+# Шаг 6 брифа — ветвь «Переоткрытие» (ID_PREV_CONTRACT).
+# ---------------------------------------------------------------------------
+
+ACTIVE_TOTAL = NamedQuery(
+    name="active_total",
+    sql=(
+        "SELECT COUNT(*) AS ACTIVE_TOTAL "
+        "FROM CONTRACTS c "
+        "JOIN CONTRACT_STATES st ON st.STATE_ID = c.CONTRACT_STATE "
+        "WHERE st.CODE = 'OPEN'"
+    ),
+    note="знаменатель для всех долей 'по активному портфелю' (CODE='OPEN' — снято T-0-3b, Q-7)",
+)
+
+REOPEN_ACTIVE_WITH_PREV = NamedQuery(
+    name="reopen_active_with_prev",
+    sql=(
+        "SELECT COUNT(*) AS ACTIVE_WITH_PREV "
+        "FROM CONTRACTS c "
+        "JOIN CONTRACT_STATES st ON st.STATE_ID = c.CONTRACT_STATE "
+        "WHERE st.CODE = 'OPEN' AND c.ID_PREV_CONTRACT IS NOT NULL"
+    ),
+    note="шаг 6: сколько активных договоров имеют непустую связь с предыдущим",
+)
+
+REOPEN_MAX_CHAIN_LENGTH = NamedQuery(
+    name="reopen_max_chain_length",
+    sql=(
+        "WITH RENEW_CHAIN AS ("
+        "SELECT CONTRACT_ID, CONTRACT_ID AS ROOT_ID, 1 AS DEPTH "
+        "FROM CONTRACTS WHERE ID_PREV_CONTRACT IS NULL "
+        "UNION ALL "
+        "SELECT c.CONTRACT_ID, ch.ROOT_ID, ch.DEPTH + 1 "
+        "FROM CONTRACTS c JOIN RENEW_CHAIN ch ON c.ID_PREV_CONTRACT = ch.CONTRACT_ID"
+        ") "
+        "SELECT MAX(DEPTH) AS MAX_CHAIN_LENGTH FROM RENEW_CHAIN"
+    ),
+    note=(
+        "шаг 6: максимальная длина цепочки переоткрытий (Firebird 2.5 поддерживает "
+        "WITH-рекурсию без ключевого слова RECURSIVE). Имя CTE намеренно НЕ 'CHAIN' — "
+        "офлайн-тест (шаг 2) показал, что sqlparse читает 'CHAIN' как Keyword, а не "
+        "Identifier, и Statement.get_type() из-за этого возвращает 'UNKNOWN' вместо "
+        "'SELECT'; это дефект имени CTE в тексте запроса, не дефект белого списка — "
+        "исправлено переименованием, а не подгонкой валидатора."
+    ),
+)
+
+REOPEN_CONTRACTS_IN_CHAINS = NamedQuery(
+    name="reopen_contracts_in_chains",
+    sql=(
+        "SELECT COUNT(*) AS IN_CHAIN FROM CONTRACTS c "
+        "WHERE c.ID_PREV_CONTRACT IS NOT NULL "
+        "OR c.CONTRACT_ID IN (SELECT ID_PREV_CONTRACT FROM CONTRACTS WHERE ID_PREV_CONTRACT IS NOT NULL)"
+    ),
+    note="шаг 6: сколько договоров портфеля (любого статуса) стоят в цепочках хоть одной стороной",
+)
+
+REOPEN_SAMPLE_PAIRS = NamedQuery(
+    name="reopen_sample_pairs",
+    sql=(
+        "SELECT FIRST 20 c.CONTRACT_DATE AS NEW_DATE, p.CONTRACT_DATE AS PREV_DATE "
+        "FROM CONTRACTS c "
+        "JOIN CONTRACTS p ON p.CONTRACT_ID = c.ID_PREV_CONTRACT "
+        "WHERE c.ID_PREV_CONTRACT IS NOT NULL "
+        "ORDER BY c.CONTRACT_DATE"
+    ),
+    note=(
+        "шаг 6: пары 'старый -> новый' датами БЕЗ идентификаторов договора — "
+        "печать порядковым номером выборки делает вызывающий код (см. print_reopen_pairs)"
+    ),
+)
+
+# ---------------------------------------------------------------------------
+# Попутный замер 1 (шаг 9 брифа) — Q-6, пустые идентификаторы объекта (VIN).
+# Имя системного поля SUBJ_AUTO_VIN — реальное наблюдение шага 7 T-0-8
+# (reference/T-0-8_step7_charset_measurement_2026-08-17.md §2.e), не догадка.
+# ---------------------------------------------------------------------------
+
+VIN_FIELD_CATALOG = NamedQuery(
+    name="vin_field_catalog",
+    sql=(
+        "SELECT ID, NAME, ID_OBJ_TABLE FROM DIR_CUSTOM_FIELDS "
+        "WHERE NAME LIKE '%VIN%' OR NAME LIKE '%AUTO%'"
+    ),
+    note="шаг 9 подготовка: каталог кандидатов на поле идентификатора объекта (проверка, не смена SUBJ_AUTO_VIN на веру)",
+)
+
+EMPTY_VEHICLE_ID_COUNT = NamedQuery(
+    name="empty_vehicle_id_count",
+    sql=(
+        "SELECT COUNT(*) AS TOTAL_SUBJECTS, "
+        "SUM(CASE WHEN v.FIELD_VALUE IS NULL OR TRIM(v.FIELD_VALUE) = '' THEN 1 ELSE 0 END) AS EMPTY_VIN "
+        "FROM SUBJECTS s "
+        "LEFT JOIN CUSTOM_FIELDS_VALUES v "
+        "ON v.ID_OBJ = s.ID "
+        "AND v.ID_FIELD = (SELECT ID FROM DIR_CUSTOM_FIELDS WHERE NAME = 'SUBJ_AUTO_VIN')"
+    ),
+    note="шаг 9 / Q-6: счёт объектов с пустым VIN — числом и долей (доля считается вызывающим кодом: EMPTY_VIN / TOTAL_SUBJECTS)",
+)
+
+# ---------------------------------------------------------------------------
+# Попутный замер 2 (шаг 10 брифа) — Q-23, валюта и курс.
+# ---------------------------------------------------------------------------
+
+EXCHANGE_RATE_DISTRIBUTION = NamedQuery(
+    name="exchange_rate_distribution",
+    sql="SELECT EXCHANGE_RATE, COUNT(*) AS CNT FROM CONTRACTS GROUP BY EXCHANGE_RATE ORDER BY EXCHANGE_RATE",
+    note="шаг 10 / Q-23: распределение EXCHANGE_RATE по группам договоров",
+)
+
+USE_EXCHANGE_FLAGS_DISTRIBUTION = NamedQuery(
+    name="use_exchange_flags_distribution",
+    sql=(
+        "SELECT USE_EXCHANGE, USE_EXCHANGE_IF_INCREASE, COUNT(*) AS CNT "
+        "FROM CONTRACTS_TERMS "
+        "GROUP BY USE_EXCHANGE, USE_EXCHANGE_IF_INCREASE"
+    ),
+    note="шаг 10 / Q-23: распределение флагов применения курса",
+)
+
+# ---------------------------------------------------------------------------
+# Попутный замер 3 (шаг 11 брифа, ADR-067) — сроки договоров.
+# ---------------------------------------------------------------------------
+
+CONTRACT_TERM_HISTOGRAM = NamedQuery(
+    name="contract_term_histogram",
+    sql=(
+        "SELECT (PLAN_CLOSE_DATE - CONTRACT_DATE) AS TERM_DAYS, COUNT(*) AS CNT "
+        "FROM CONTRACTS "
+        "WHERE PLAN_CLOSE_DATE IS NOT NULL AND CONTRACT_DATE IS NOT NULL "
+        "GROUP BY (PLAN_CLOSE_DATE - CONTRACT_DATE) "
+        "ORDER BY TERM_DAYS"
+    ),
+    note="шаг 11: распределение срока договора (PLAN_CLOSE_DATE - CONTRACT_DATE) гистограммой по всему портфелю",
+)
+
+# ---------------------------------------------------------------------------
+# Попутный замер 4 (шаг 12 брифа) — признак реализации / цена продажи; сырьё T-0-4b.
+# ---------------------------------------------------------------------------
+
+REALIZATION_FIELD_CATALOG = NamedQuery(
+    name="realization_field_catalog",
+    sql=(
+        "SELECT ID, NAME, ID_OBJ_TABLE FROM DIR_CUSTOM_FIELDS "
+        "WHERE NAME LIKE '%SALE%' OR NAME LIKE '%PRICE%' OR NAME LIKE '%REALIZ%' OR NAME LIKE '%SOLD%'"
+    ),
+    note="шаг 12: поиск в каталоге кастомных полей кандидата на 'цена продажи' — найдено/не найдено по результату, не по догадке",
+)
+
+CONTRACT_STATE_CATALOG = NamedQuery(
+    name="contract_state_catalog",
+    sql="SELECT STATE_ID, CODE, SORT_ORDER FROM CONTRACT_STATES ORDER BY SORT_ORDER",
+    note="шаг 12: признак 'ушёл в реализацию' проверяется по CONTRACT_STATES.CODE (SALED/ONSALE уже видены шагом 7 T-0-8, здесь — полный каталог как факт, не пересказ)",
+)
+
+T0_4B_RAW_TERMS_AGGREGATES: tuple[NamedQuery, ...] = (
+    NamedQuery(
+        name="raw_is_pay_perc_on_future",
+        sql="SELECT IS_PAY_PERC_ON_FUTURE, COUNT(*) AS CNT FROM CONTRACTS_TERMS GROUP BY IS_PAY_PERC_ON_FUTURE",
+        note="сырьё T-0-4b (разбор не входит в T-0-4a)",
+    ),
+    NamedQuery(
+        name="raw_start_moment",
+        sql="SELECT START_MOMENT, COUNT(*) AS CNT FROM CONTRACTS_TERMS GROUP BY START_MOMENT",
+        note="сырьё T-0-4b",
+    ),
+    NamedQuery(
+        name="raw_id_op",
+        sql="SELECT ID_OP, COUNT(*) AS CNT FROM CONTRACTS_TERMS GROUP BY ID_OP",
+        note="сырьё T-0-4b",
+    ),
+    NamedQuery(
+        name="raw_acc_pay_scheme",
+        sql="SELECT ACC_PAY_SCHEME, COUNT(*) AS CNT FROM CONTRACTS_TERMS GROUP BY ACC_PAY_SCHEME",
+        note="сырьё T-0-4b",
+    ),
+    NamedQuery(
+        name="raw_exceed_days_months",
+        sql=(
+            "SELECT EXCEED_DAYS, EXCEED_MONTHS, COUNT(*) AS CNT "
+            "FROM CONTRACTS_TERMS GROUP BY EXCEED_DAYS, EXCEED_MONTHS"
+        ),
+        note="сырьё T-0-4b",
+    ),
+    NamedQuery(
+        name="raw_is_privilege_in_exceed_days",
+        sql=(
+            "SELECT IS_PRIVILEGE_IN_EXCEED_DAYS, COUNT(*) AS CNT "
+            "FROM CONTRACTS_TERMS GROUP BY IS_PRIVILEGE_IN_EXCEED_DAYS"
+        ),
+        note="сырьё T-0-4b",
+    ),
+)
+
+STATIC_QUERIES: tuple[NamedQuery, ...] = (
+    ENGINE_VERSION,
+    ROW_COUNT_CONTROL,
+    OPERATIONS_STRUCTURE,
+    OPERATION_TYPE_COUNTS,
+    ACTIVE_TOTAL,
+    REOPEN_ACTIVE_WITH_PREV,
+    REOPEN_MAX_CHAIN_LENGTH,
+    REOPEN_CONTRACTS_IN_CHAINS,
+    REOPEN_SAMPLE_PAIRS,
+    VIN_FIELD_CATALOG,
+    EMPTY_VEHICLE_ID_COUNT,
+    EXCHANGE_RATE_DISTRIBUTION,
+    USE_EXCHANGE_FLAGS_DISTRIBUTION,
+    CONTRACT_TERM_HISTOGRAM,
+    REALIZATION_FIELD_CATALOG,
+    CONTRACT_STATE_CATALOG,
+) + T0_4B_RAW_TERMS_AGGREGATES
+
+
+# ---------------------------------------------------------------------------
+# Шаги 7–8 брифа — зависят от кодов OP_VID, снятых ЖИВЫМ запросом
+# `operations_structure`/`operation_type_counts` выше. Не угадываются здесь.
+# ---------------------------------------------------------------------------
+
+
+def build_renewal_op_queries(renewal_op_vids: Sequence[int]) -> tuple[NamedQuery, ...]:
+    """Строит запросы ветви «Погашение» и сводной доли по СПИСКУ кодов OP_VID,
+    которые по прочитанному на сервере описанию колонки означают продление или
+    частичное погашение (шаг 5 брифа снимает описание, шаг 7 читает его и
+    называет коды — код выбора не подставляет значение сам).
+
+    `renewal_op_vids` пустой или не передан → `DiscoveryConfigError`, а не
+    построение запроса с пустым `IN ()` (это была бы тихая подстановка
+    "ничего не считать продлением", неотличимая от намеренного нуля)."""
+    if not renewal_op_vids:
+        raise DiscoveryConfigError(
+            "CONTEXT GAP: renewal_op_vids пуст — коды OP_VID, означающие продление/"
+            "частичное погашение, ещё не сняты запросом operations_structure/"
+            "operation_type_counts на сервере. Подставлять значение угадыванием "
+            "запрещено (anti-improvisation, CLAUDE.md)."
+        )
+    placeholders = ", ".join("?" for _ in renewal_op_vids)
+    params = tuple(renewal_op_vids)
+
+    repayment_active = NamedQuery(
+        name="repayment_active_with_renewal_op",
+        sql=(
+            "SELECT COUNT(DISTINCT c.CONTRACT_ID) AS ACTIVE_WITH_RENEWAL_OP "
+            "FROM CONTRACTS c "
+            "JOIN CONTRACT_STATES st ON st.STATE_ID = c.CONTRACT_STATE "
+            "JOIN OPERATIONS o ON o.DEPOSIT_ID = c.CONTRACT_ID "
+            f"WHERE st.CODE = 'OPEN' AND o.OP_VID IN ({placeholders})"
+        ),
+        params=params,
+        note="шаг 7: сколько активных договоров имеют хотя бы одну операцию из названных типов",
+    )
+    renewed_share = NamedQuery(
+        name="renewed_portfolio_share",
+        sql=(
+            "SELECT COUNT(DISTINCT c.CONTRACT_ID) AS RENEWED_PORTFOLIO "
+            "FROM CONTRACTS c "
+            "JOIN CONTRACT_STATES st ON st.STATE_ID = c.CONTRACT_STATE "
+            "LEFT JOIN OPERATIONS o ON o.DEPOSIT_ID = c.CONTRACT_ID "
+            f"AND o.OP_VID IN ({placeholders}) "
+            "WHERE st.CODE = 'OPEN' AND (c.ID_PREV_CONTRACT IS NOT NULL OR o.OP_ID IS NOT NULL)"
+        ),
+        params=params,
+        note="шаг 8: объединение обеих ветвей — числитель доли перезакладываемых (знаменатель — active_total)",
+    )
+    return (repayment_active, renewed_share)
+
+
+# ---------------------------------------------------------------------------
+# Исполнение — печатает результат каждого запроса агрегатами, ничего не пишет
+# кроме лога.
+# ---------------------------------------------------------------------------
+
+
+def run_query(connection: Any, nq: NamedQuery) -> list[tuple]:
+    rows = access_point(connection, nq.sql, nq.params)
+    logger.info("замер [%s] (%s): %d строк(и)", nq.name, nq.note, len(rows))
+    printed = rows[:_MAX_ROWS_PRINTED]
+    for row in printed:
+        logger.info("  %s: %r", nq.name, row)
+    if len(rows) > _MAX_ROWS_PRINTED:
+        logger.info(
+            "  %s: ещё %d строк(и) не напечатано (обрезка на %d — агрегат этой "
+            "задачи не должен быть больше)",
+            nq.name,
+            len(rows) - _MAX_ROWS_PRINTED,
+            _MAX_ROWS_PRINTED,
+        )
+    return rows
+
+
+def print_reopen_pairs(rows: list[tuple]) -> None:
+    """Печатает пары 'старый -> новый' ПОРЯДКОВЫМ номером выборки — запрос
+    `reopen_sample_pairs` не возвращает ни CONTRACT_ID, ни CONTRACT_NUM,
+    поэтому даже прямая печать строки результата номера договора не несёт."""
+    for i, (new_date, prev_date) in enumerate(rows, start=1):
+        logger.info("  пара #%d: %s -> %s", i, prev_date, new_date)
+
+
+def run_static(connection: Any) -> dict[str, list[tuple]]:
+    """Прогоняет все запросы, не зависящие от результата шага 5 (`STATIC_QUERIES`).
+    Запросы шагов 7–8 (ветвь «Погашение») исполняются ОТДЕЛЬНЫМ вызовом
+    `build_renewal_op_queries()` после того, как коды OP_VID названы по
+    результату `operations_structure`/`operation_type_counts` этого прогона."""
+    results: dict[str, list[tuple]] = {}
+    for nq in STATIC_QUERIES:
+        rows = run_query(connection, nq)
+        results[nq.name] = rows
+        if nq.name == "reopen_sample_pairs":
+            print_reopen_pairs(rows)
+    return results
+
+
+def run_renewal_ops(connection: Any, renewal_op_vids: Sequence[int]) -> dict[str, list[tuple]]:
+    results: dict[str, list[tuple]] = {}
+    for nq in build_renewal_op_queries(renewal_op_vids):
+        results[nq.name] = run_query(connection, nq)
+    return results
+
+
+if __name__ == "__main__":
+    raise SystemExit(
+        "CONTEXT GAP: этот модуль не открывает подключение сам и не запускается "
+        "как CLI против боевой базы этой сессией — исполнение на сервере ERP "
+        "предмет шагов 3+ брифа T-0-4a (класс B, карточка подтверждения владельца "
+        "для каждого шага). Импортируйте run_static()/run_renewal_ops() из "
+        "обвязки, открывающей подключение тем же способом, что run_daily.py."
+    )
