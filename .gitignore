@@ -15,3 +15,6 @@ audit/*
 !audit/README.md
 spec/*
 !spec/README.md
+# T-0-4a шаг 3: локальный вывод scripts/T-0-4a_step3_prepare_delivery.sh —
+# производные base64-пейлоады, регенерируются скриптом, в репозиторий не входят.
+reference/_local_delivery_t0_4a_step3/
