@@ -13,3 +13,5 @@ data_inbox/*
 !data_inbox/.gitkeep
 audit/*
 !audit/README.md
+spec/*
+!spec/README.md
