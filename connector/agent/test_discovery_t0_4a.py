@@ -14,7 +14,10 @@ connector/agent/test_discovery_t0_4a.py — T-0-4a, шаг 2 (класс A, ло
 
 from __future__ import annotations
 
+import argparse
 import sys
+import tempfile
+from pathlib import Path
 
 from connector.agent import discovery_t0_4a as disc
 from connector.agent.access_point import validate_query
@@ -107,6 +110,54 @@ def main() -> int:
     else:
         failed += 1
         print(f"[ПРОВАЛЕНО] _resolve_queries (динамика) вернул не то: {resolved_dynamic!r}")
+
+    # _read_queries_spec (2026-08-18: control-файл вместо schtasks /change на
+    # каждый шаг) — офлайн, файловая система только локальная, база не трогается.
+    ns_explicit = argparse.Namespace(queries="engine_version,row_count_control", queries_file=None)
+    got = disc._read_queries_spec(ns_explicit)
+    if got == "engine_version,row_count_control":
+        print("[пройдено]  _read_queries_spec: явный --queries побеждает файл (файл даже не читается)")
+    else:
+        failed += 1
+        print(f"[ПРОВАЛЕНО] _read_queries_spec (явный --queries) вернул не то: {got!r}")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        control_file = Path(tmp) / "next_queries.txt"
+        control_file.write_text("operations_structure,operation_type_counts\n", encoding="utf-8")
+        ns_file = argparse.Namespace(queries=None, queries_file=str(control_file))
+        got = disc._read_queries_spec(ns_file)
+        if got == "operations_structure,operation_type_counts":
+            print("[пройдено]  _read_queries_spec: без --queries читает control-файл")
+        else:
+            failed += 1
+            print(f"[ПРОВАЛЕНО] _read_queries_spec (файл) вернул не то: {got!r}")
+
+        missing_file = Path(tmp) / "does_not_exist.txt"
+        ns_missing = argparse.Namespace(queries=None, queries_file=str(missing_file))
+        try:
+            disc._read_queries_spec(ns_missing)
+            failed += 1
+            print("[ПРОВАЛЕНО] _read_queries_spec с несуществующим файлом обязан кинуть DiscoveryConfigError, а прошёл")
+        except disc.DiscoveryConfigError as exc:
+            print(f"[пройдено]  _read_queries_spec отбивает отсутствующий control-файл явным CONTEXT GAP: {exc}")
+
+        empty_file = Path(tmp) / "empty.txt"
+        empty_file.write_text("   \n", encoding="utf-8")
+        ns_empty = argparse.Namespace(queries=None, queries_file=str(empty_file))
+        try:
+            disc._read_queries_spec(ns_empty)
+            failed += 1
+            print("[ПРОВАЛЕНО] _read_queries_spec с пустым control-файлом обязан кинуть DiscoveryConfigError, а прошёл")
+        except disc.DiscoveryConfigError as exc:
+            print(f"[пройдено]  _read_queries_spec отбивает пустой control-файл явным CONTEXT GAP: {exc}")
+
+        ns_empty_string = argparse.Namespace(queries="", queries_file=str(control_file))
+        got = disc._read_queries_spec(ns_empty_string)
+        if got == "operations_structure,operation_type_counts":
+            print("[пройдено]  _read_queries_spec: пустая строка --queries (falsy) тоже уходит к файлу, не к пустому запуску")
+        else:
+            failed += 1
+            print(f"[ПРОВАЛЕНО] _read_queries_spec (пустой --queries) вернул не то: {got!r}")
 
     print(f"\nитого провалено: {failed}")
     return 1 if failed else 0

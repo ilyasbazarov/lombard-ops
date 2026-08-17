@@ -465,14 +465,31 @@ def run_renewal_ops(connection: Any, renewal_op_vids: Sequence[int]) -> dict[str
 # отдельной карточки подтверждения владельца НА КАЖДЫЙ вызов).
 #
 # «Один скрипт на ШАГ брифа, а не на команду» (`05_CONVENTIONS §I`): один и тот
-# же файл вызывается на сервере НЕСКОЛЬКО раз, но каждый вызов передаёт СВОЙ
-# список --queries, соответствующий ровно одному шагу брифа (например, шаг 4 —
+# же файл вызывается на сервере НЕСКОЛЬКО раз, но каждый вызов исполняет СВОЙ
+# список запросов, соответствующий ровно одному шагу брифа (например, шаг 4 —
 # только engine_version,row_count_control; шаг 5 — только operations_structure,
 # operation_type_counts), и каждый такой вызов — отдельное действие класса B со
-# своей карточкой. Запуск без --queries или с неизвестным именем отбивается
-# `DiscoveryConfigError` ДО открытия соединения с базой — не молчаливый прогон
-# всего подряд.
+# своей карточкой. Пустой или неизвестный список отбивается `DiscoveryConfigError`
+# ДО открытия соединения с базой — не молчаливый прогон всего подряд.
+#
+# **Источник списка — ДВА способа, оба ведут к одному и тому же аргументу.**
+# (1) `--queries` явным текстом — способ офлайн-тестов и ручных прогонов, не
+# меняется. (2) Если `--queries` не передан — читается ИЗ ФАЙЛА, путь по
+# умолчанию `DEFAULT_QUERIES_FILE` ниже, переопределимый `--queries-file`.
+# Появилось 2026-08-18: `schtasks /change /tr` для password-based задачи
+# планировщика на каждую смену шага брифа требует пароль учётки заново
+# (реальное ограничение Windows Task Scheduler, не наша прихоть) — Task
+# Scheduler хранит логон-креды для конкретного зафиксированного `/tr`,
+# смена аргументов командной строки есть смена `/tr`. Файл-конфиг убирает
+# необходимость трогать пароль `lombard-agent-svc` и вызывать `schtasks
+# /change` на каждом шаге: `/tr` фиксируется РАЗ на всю оставшуюся задачу,
+# между шагами меняется только СОДЕРЖИМОЕ файла (доставка без пароля, тем
+# же каналом base64+certutil, что и код), и `schtasks /run` без `/change`.
+# Пустой или отсутствующий файл — `DiscoveryConfigError`, а не «ничего не
+# делать молча» (та же дисциплина, что у пустого `--queries`).
 # ---------------------------------------------------------------------------
+
+DEFAULT_QUERIES_FILE = r"C:\LombardAgent\control\t0_4a_next_queries.txt"
 
 
 def _open_connection_like_run_daily() -> Any:
@@ -507,20 +524,58 @@ def _resolve_queries(
     return [static_by_name.get(n) or dynamic_by_name[n] for n in names]
 
 
+def _read_queries_spec(args: Any) -> str:
+    """Возвращает СЫРОЙ (не разобранный на имена) текст списка запросов —
+    из `--queries`, если передан явно, иначе из файла (`--queries-file` или
+    `DEFAULT_QUERIES_FILE`). Ни один путь не подставляет значение по
+    умолчанию тише пустой строки: отсутствие файла или пустое содержимое —
+    именованный `DiscoveryConfigError`, не «ничего не делать»."""
+    if args.queries:
+        return args.queries
+
+    file_path = Path(args.queries_file or DEFAULT_QUERIES_FILE)
+    if not file_path.exists():
+        raise DiscoveryConfigError(
+            f"CONTEXT GAP: --queries не передан, и control-файл {file_path} не "
+            "существует — какой шаг исполнять, не названо ни одним из двух "
+            "источников. Значение не подставляется."
+        )
+    content = file_path.read_text(encoding="utf-8").strip()
+    if not content:
+        raise DiscoveryConfigError(
+            f"CONTEXT GAP: control-файл {file_path} существует, но пуст после "
+            "strip() — список запросов не назван"
+        )
+    return content
+
+
 def cli_main(argv: Sequence[str]) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(
         description=(
             "T-0-4a: запуск ИМЕНОВАННОГО подмножества запросов модуля через "
-            "access_point(). --queries обязателен и закрывает ровно ОДИН шаг "
-            "брифа за вызов — не общий 'прогнать всё'."
+            "access_point(). Список закрывает ровно ОДИН шаг брифа за вызов — "
+            "не общий 'прогнать всё'. Источник списка — --queries явным текстом "
+            "ЛИБО (если --queries не передан) control-файл — см. --queries-file."
         )
     )
     parser.add_argument(
         "--queries",
-        required=True,
-        help="запятая-разделённый список имён запросов (STATIC_QUERIES или динамических)",
+        default=None,
+        help=(
+            "запятая-разделённый список имён запросов (STATIC_QUERIES или "
+            "динамических); если не передан — читается из control-файла"
+        ),
+    )
+    parser.add_argument(
+        "--queries-file",
+        default=None,
+        help=(
+            "путь к control-файлу со списком имён (одна строка, через запятую); "
+            f"используется, только если --queries не передан; по умолчанию "
+            f"{DEFAULT_QUERIES_FILE}"
+        ),
     )
     parser.add_argument(
         "--renewal-op-vids",
@@ -533,9 +588,10 @@ def cli_main(argv: Sequence[str]) -> int:
     )
     args = parser.parse_args(list(argv))
 
-    names = [n.strip() for n in args.queries.split(",") if n.strip()]
+    raw_spec = _read_queries_spec(args)
+    names = [n.strip() for n in raw_spec.split(",") if n.strip()]
     if not names:
-        raise DiscoveryConfigError("CONTEXT GAP: --queries передан пустым — какой шаг исполнять, не названо")
+        raise DiscoveryConfigError("CONTEXT GAP: список запросов пуст после разбора — какой шаг исполнять, не названо")
     renewal_op_vids = tuple(int(v) for v in args.renewal_op_vids.split(",") if v.strip())
 
     queries = _resolve_queries(names, renewal_op_vids)

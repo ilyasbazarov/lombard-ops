@@ -1,14 +1,26 @@
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$Queries,
+    [string]$Queries = "",
     [string]$RenewalOpVids = ""
 )
 
 # scripts/T-0-4a_run_discovery.ps1 — обёртка запуска на сервере ERP, брифы T-0-4a
 # (шаги 3+, класс B). Один и тот же файл вызывается НЕСКОЛЬКО раз в ходе задачи —
-# каждый вызов передаёт СВОЙ -Queries, соответствующий ровно ОДНОМУ шагу брифа
-# (05_CONVENTIONS §I, «один скрипт на шаг, а не на команду»), и каждый такой вызов
-# требует своей отдельной карточки подтверждения владельца ПЕРЕД запуском.
+# каждый вызов исполняет СВОЙ список запросов, соответствующий ровно ОДНОМУ шагу
+# брифа (05_CONVENTIONS §I, «один скрипт на шаг, а не на команду»), и каждый такой
+# вызов требует своей отдельной карточки подтверждения владельца ПЕРЕД запуском.
+#
+# **Источник списка запросов — ДВА способа (2026-08-18).** `-Queries` явным
+# текстом — как раньше, для разового/ручного вызова. Если `-Queries` НЕ передан
+# (пустая строка по умолчанию) — флаг `--queries` не идёт в Python вовсе, и
+# `discovery_t0_4a.py` сам читает список из control-файла (по умолчанию
+# `C:\LombardAgent\control\t0_4a_next_queries.txt`, путь — см. `DEFAULT_QUERIES_FILE`
+# в самом модуле). Причина: `schtasks /change /tr` для задачи планировщика с
+# password-логоном («Задача планировщика Windows требует пароль учётки заново
+# при КАЖДОЙ смене `/tr`) — реальное ограничение платформы, не наша прихоть.
+# Действие задачи (`/tr`) теперь фиксируется РАЗ на всю оставшуюся задачу без
+# `-Queries`; между шагами брифа меняется только СОДЕРЖИМОЕ control-файла
+# (доставка тем же каналом base64+certutil, без пароля вообще), и запуск —
+# `schtasks /run` без `schtasks /change`.
 #
 # ТРЕБУЕТСЯ запуск от имени `lombard-agent-svc` (Задача планировщика Windows,
 # по образцу `LombardAgentDailyRun` — 11_INFRA_FACTS.md, «Способ запуска
@@ -50,14 +62,20 @@ $stdoutFile = Join-Path $logDir ("t0_4a_discovery_{0}.out.log" -f $stamp)
 $stderrFile = Join-Path $logDir ("t0_4a_discovery_{0}.err.log" -f $stamp)
 
 $scriptArgs = @(
-    '"C:\LombardAgent\code\connector\agent\discovery_t0_4a.py"',
-    '--queries', $Queries
+    '"C:\LombardAgent\code\connector\agent\discovery_t0_4a.py"'
 )
+if ($Queries -ne "") {
+    # Явный -Queries — старый способ, побеждает control-файл (см. дискурс модуля).
+    $scriptArgs += @('--queries', $Queries)
+}
+# Иначе флаг --queries не передаётся вовсе — discovery_t0_4a.py читает
+# DEFAULT_QUERIES_FILE сам; отсутствие/пустота файла отбивается ЕГО
+# собственным CONTEXT GAP (DiscoveryConfigError), не этим скриптом.
 if ($RenewalOpVids -ne "") {
     $scriptArgs += @('--renewal-op-vids', $RenewalOpVids)
 }
 
 $proc = Start-Process -FilePath "C:\Program Files\Python314\python.exe" -ArgumentList $scriptArgs -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
 Add-Content -Path $stdoutFile -Value ("EXITCODE: {0}" -f $proc.ExitCode)
-Add-Content -Path $stdoutFile -Value ("QUERIES: {0}" -f $Queries)
+Add-Content -Path $stdoutFile -Value ("QUERIES ARG: {0}" -f $(if ($Queries -ne "") { $Queries } else { "(control-file)" }))
 exit $proc.ExitCode
