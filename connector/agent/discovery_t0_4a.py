@@ -166,43 +166,91 @@ REOPEN_ACTIVE_WITH_PREV = NamedQuery(
     note="шаг 6: сколько активных договоров имеют непустую связь с предыдущим",
 )
 
+# ТРЕТЬЯ правка (2026-08-18): рекурсивный WITH дал `SQLCODE -104 "CTE ...
+# has cyclic dependencies"` ДВАЖДЫ подряд с разными формами текста (без и с
+# явным списком колонок CTE, без и с `WHERE ch.DEPTH < 500`) — гипотеза
+# «форма записи» экспериментально не подтвердилась, вторая попытка её
+# вариации без нового основания была бы тем самым угадыванием, которое
+# запрещено (anti-improvisation). Задокументированного факта именно про это
+# сообщение Firebird 2.5 в репозитории нет (сплошной поиск `grep -rn
+# "SQLCODE.*-104\|cyclic dependencies"` — 0 совпадений до этой правки), и
+# средства добыть его СНАРУЖИ репозитория (веб-поиск/документация вендора)
+# у этой сессии нет — внешний источник тут в любом случае был бы только
+# гипотезой, не фактом (`ADR-045`). Причина ошибки движка остаётся
+# НЕОБЪЯСНЕННОЙ и не выдаётся за объяснённую.
+#
+# Вместо третьей вариации синтаксиса — ОБХОД без рекурсивного `WITH` вовсе:
+# фиксированное число последовательных `LEFT JOIN CONTRACTS` по
+# `ID_PREV_CONTRACT` (глубина 10 = сама строка + 9 уровней предков).
+# Обоснование потолка числом, не догадкой: `reopen_active_with_prev`
+# (тот же прогон, что и это поле) дал 44 активных договора с непустым
+# `ID_PREV_CONTRACT` — небольшое число, глубокие цепочки в портфеле такого
+# размера маловероятны, и `OPERATIONS.OP_VID = 3` (`ovReopen`) в шаге 5 не
+# встретился НИ РАЗУ, что говорит скорее о редком использовании ветви
+# «Переоткрытие», а не о длинных цепочках. **Число НЕ точное, если реальная
+# цепочка длиннее 10** — это явно печатается запросом-предупреждением
+# `reopen_chain_length_saturated_check` ниже (сколько цепочек «упёрлись» в
+# 10-й уровень, всё ещё не найдя корень): `0` — потолок точно достаточен;
+# `> 0` — `MAX_CHAIN_LENGTH` есть НИЖНЯЯ оценка, факт называется поимённо,
+# а не молчится.
 REOPEN_MAX_CHAIN_LENGTH = NamedQuery(
     name="reopen_max_chain_length",
     sql=(
-        "WITH RENEW_CHAIN (CONTRACT_ID, ROOT_ID, DEPTH) AS ("
-        "SELECT CONTRACT_ID, CONTRACT_ID, 1 "
-        "FROM CONTRACTS WHERE ID_PREV_CONTRACT IS NULL "
-        "UNION ALL "
-        "SELECT c.CONTRACT_ID, ch.ROOT_ID, ch.DEPTH + 1 "
-        "FROM CONTRACTS c JOIN RENEW_CHAIN ch ON c.ID_PREV_CONTRACT = ch.CONTRACT_ID "
-        "WHERE ch.DEPTH < 500"
-        ") "
-        "SELECT MAX(DEPTH) AS MAX_CHAIN_LENGTH FROM RENEW_CHAIN"
+        "SELECT MAX("
+        "1"
+        " + CASE WHEN l1.CONTRACT_ID IS NOT NULL THEN 1 ELSE 0 END"
+        " + CASE WHEN l2.CONTRACT_ID IS NOT NULL THEN 1 ELSE 0 END"
+        " + CASE WHEN l3.CONTRACT_ID IS NOT NULL THEN 1 ELSE 0 END"
+        " + CASE WHEN l4.CONTRACT_ID IS NOT NULL THEN 1 ELSE 0 END"
+        " + CASE WHEN l5.CONTRACT_ID IS NOT NULL THEN 1 ELSE 0 END"
+        " + CASE WHEN l6.CONTRACT_ID IS NOT NULL THEN 1 ELSE 0 END"
+        " + CASE WHEN l7.CONTRACT_ID IS NOT NULL THEN 1 ELSE 0 END"
+        " + CASE WHEN l8.CONTRACT_ID IS NOT NULL THEN 1 ELSE 0 END"
+        " + CASE WHEN l9.CONTRACT_ID IS NOT NULL THEN 1 ELSE 0 END"
+        ") AS MAX_CHAIN_LENGTH "
+        "FROM CONTRACTS c "
+        "LEFT JOIN CONTRACTS l1 ON l1.CONTRACT_ID = c.ID_PREV_CONTRACT "
+        "LEFT JOIN CONTRACTS l2 ON l2.CONTRACT_ID = l1.ID_PREV_CONTRACT "
+        "LEFT JOIN CONTRACTS l3 ON l3.CONTRACT_ID = l2.ID_PREV_CONTRACT "
+        "LEFT JOIN CONTRACTS l4 ON l4.CONTRACT_ID = l3.ID_PREV_CONTRACT "
+        "LEFT JOIN CONTRACTS l5 ON l5.CONTRACT_ID = l4.ID_PREV_CONTRACT "
+        "LEFT JOIN CONTRACTS l6 ON l6.CONTRACT_ID = l5.ID_PREV_CONTRACT "
+        "LEFT JOIN CONTRACTS l7 ON l7.CONTRACT_ID = l6.ID_PREV_CONTRACT "
+        "LEFT JOIN CONTRACTS l8 ON l8.CONTRACT_ID = l7.ID_PREV_CONTRACT "
+        "LEFT JOIN CONTRACTS l9 ON l9.CONTRACT_ID = l8.ID_PREV_CONTRACT"
     ),
     note=(
-        "шаг 6: максимальная длина цепочки переоткрытий (Firebird 2.5 поддерживает "
-        "WITH-рекурсию без ключевого слова RECURSIVE). Имя CTE намеренно НЕ 'CHAIN' — "
-        "офлайн-тест (шаг 2) показал, что sqlparse читает 'CHAIN' как Keyword, а не "
-        "Identifier (см. историю правки ниже). "
-        "ВТОРАЯ правка (2026-08-18, реальный прогон шага 6 на сервере): исходная форма "
-        "БЕЗ явного списка колонок CTE и БЕЗ ограничения глубины упала на сервере "
-        "SQLCODE -104 'CTE RENEW_CHAIN has cyclic dependencies' — это ошибка ЭТАПА "
-        "ПОДГОТОВКИ запроса (PREPARE), а не выполнения: движок отклонил текст ДО "
-        "чтения хотя бы одной строки, значит проверялась СТРУКТУРА запроса, а не "
-        "данные CONTRACTS — реальный цикл A->B->...->A в ID_PREV_CONTRACT технически "
-        "не мог быть тому причиной (компилятор его увидеть не может, не читав строк). "
-        "Причина осталась НЕ подтверждена документацией дословно (Firebird 2.5.9 "
-        "стар и капризен к форме рекурсивных CTE) — правка ниже не выдаётся за "
-        "объяснение, только как рабочее исправление: (1) явный список колонок CTE "
-        "`(CONTRACT_ID, ROOT_ID, DEPTH)` вместо алиасов `AS` внутри SELECT — форма "
-        "ближе к канонической из руководства Firebird; (2) `WHERE ch.DEPTH < 500` в "
-        "рекурсивной ветви — стандартная защита от неограниченной рекурсии, ДАЁТ "
-        "заодно верхнюю границу ответа (при исчерпании 500 шагов результат станет "
-        "нижней оценкой реальной длины цепочки, а не точным числом — это будет видно "
-        "по значению `MAX_CHAIN_LENGTH`, близкому к 500). Обе правки внесены вместе "
-        "(риск обеих нулевой, чтения не меняются), не по одной, для экономии "
-        "серверных заходов — если понадобится изолировать, какая именно сняла отказ, "
-        "это отдельный последующий диагностический запуск, не входит в эту правку."
+        "шаг 6: максимальная длина цепочки переоткрытий — БЕЗ рекурсивного WITH "
+        "(см. комментарий над константой: -104 'has cyclic dependencies' дважды "
+        "подряд на разных формах рекурсивного запроса, причина не установлена). "
+        "Бескурсивная замена: 9 последовательных LEFT JOIN CONTRACTS по "
+        "ID_PREV_CONTRACT, потолок глубины 10 обоснован числом 44 (reopen_active_with_prev) "
+        "и нулевым OP_VID=3 в шаге 5, не догадкой. Насыщение потолка проверяется "
+        "отдельным запросом reopen_chain_length_saturated_check."
+    ),
+)
+
+REOPEN_CHAIN_LENGTH_SATURATED_CHECK = NamedQuery(
+    name="reopen_chain_length_saturated_check",
+    sql=(
+        "SELECT COUNT(*) AS SATURATED_AT_10 "
+        "FROM CONTRACTS c "
+        "LEFT JOIN CONTRACTS l1 ON l1.CONTRACT_ID = c.ID_PREV_CONTRACT "
+        "LEFT JOIN CONTRACTS l2 ON l2.CONTRACT_ID = l1.ID_PREV_CONTRACT "
+        "LEFT JOIN CONTRACTS l3 ON l3.CONTRACT_ID = l2.ID_PREV_CONTRACT "
+        "LEFT JOIN CONTRACTS l4 ON l4.CONTRACT_ID = l3.ID_PREV_CONTRACT "
+        "LEFT JOIN CONTRACTS l5 ON l5.CONTRACT_ID = l4.ID_PREV_CONTRACT "
+        "LEFT JOIN CONTRACTS l6 ON l6.CONTRACT_ID = l5.ID_PREV_CONTRACT "
+        "LEFT JOIN CONTRACTS l7 ON l7.CONTRACT_ID = l6.ID_PREV_CONTRACT "
+        "LEFT JOIN CONTRACTS l8 ON l8.CONTRACT_ID = l7.ID_PREV_CONTRACT "
+        "LEFT JOIN CONTRACTS l9 ON l9.CONTRACT_ID = l8.ID_PREV_CONTRACT "
+        "WHERE l9.CONTRACT_ID IS NOT NULL AND l9.ID_PREV_CONTRACT IS NOT NULL"
+    ),
+    note=(
+        "проверка насыщения потолка глубины 10 у reopen_max_chain_length: строка "
+        "'дошла' до 10-го уровня И у него самого ещё есть предок — то есть "
+        "потолка не хватило, MAX_CHAIN_LENGTH=10 будет НИЖНЕЙ оценкой, не фактом. "
+        "0 — потолок 10 точно достаточен для всего портфеля."
     ),
 )
 
@@ -361,6 +409,7 @@ STATIC_QUERIES: tuple[NamedQuery, ...] = (
     ACTIVE_TOTAL,
     REOPEN_ACTIVE_WITH_PREV,
     REOPEN_MAX_CHAIN_LENGTH,
+    REOPEN_CHAIN_LENGTH_SATURATED_CHECK,
     REOPEN_CONTRACTS_IN_CHAINS,
     REOPEN_SAMPLE_PAIRS,
     VIN_FIELD_CATALOG,
