@@ -5,12 +5,18 @@ connector/agent/discovery_t0_4a.py — T-0-4a, шаг 1 (класс A, лока�
 точку доступа (`connector.agent.access_point.access_point`) — здесь нет ни одного
 `cursor.execute` напрямую и ни одного второго пути к базе PawnShop.
 
-**Что этот модуль НЕ делает:** не открывает подключение сам (подключение приходит
-извне, тем же способом, что в `run_daily.py` — переменные окружения
-`LOMBARD_DB_HOST/PORT/PATH/USER/CHARSET` и Secret Manager для пароля, механизм не
-переписывается); не пишет ничего, кроме лога через `logging`; не запускается этой
-сессией против боевой базы (класс B, шаги 3 и далее брифа — отдельные карточки
-подтверждения владельца).
+**Подключение** открывается CLI (`cli_main`, ниже) ТЕМ ЖЕ способом, что в
+`run_daily.py` — реюзом его приватных функций (`_refresh_jwt`,
+`_fetch_db_credential_value`, `_connect_firebird`), а не вторым написанным
+заново механизмом; переменные окружения те же (`LOMBARD_DB_HOST/PORT/PATH/USER`,
+`LOMBARD_DB_CHARSET`, `PROJECT_ID`, `LOMBARD_AGENT_*`) и Secret Manager для
+пароля. Модуль не пишет ничего, кроме лога через `logging`.
+
+**Класс исполнения.** Написание и импорт этого файла — класс A (код без
+применения). Реальный запуск CLI ПРОТИВ БОЕВОЙ БАЗЫ — класс B: каждый вызов на
+сервере ERP исполняется только после отдельной карточки подтверждения владельца
+(шаги 3 и далее брифа `T-0-4a`), и вызов охватывает РОВНО ОДИН шаг брифа
+(`--queries` называет его именованные запросы явно) — не «прогнать всё».
 
 **Санитария (`ADR-039`, дословно из брифа).** Каждый запрос ниже — либо агрегат
 (счёт, группировка, распределение), либо каталог метаданных (имена/типы колонок,
@@ -438,11 +444,103 @@ def run_renewal_ops(connection: Any, renewal_op_vids: Sequence[int]) -> dict[str
     return results
 
 
-if __name__ == "__main__":
-    raise SystemExit(
-        "CONTEXT GAP: этот модуль не открывает подключение сам и не запускается "
-        "как CLI против боевой базы этой сессией — исполнение на сервере ERP "
-        "предмет шагов 3+ брифа T-0-4a (класс B, карточка подтверждения владельца "
-        "для каждого шага). Импортируйте run_static()/run_renewal_ops() из "
-        "обвязки, открывающей подключение тем же способом, что run_daily.py."
+# ---------------------------------------------------------------------------
+# CLI (шаги 3+ брифа, класс B — исполняется на сервере ERP ТОЛЬКО после
+# отдельной карточки подтверждения владельца НА КАЖДЫЙ вызов).
+#
+# «Один скрипт на ШАГ брифа, а не на команду» (`05_CONVENTIONS §I`): один и тот
+# же файл вызывается на сервере НЕСКОЛЬКО раз, но каждый вызов передаёт СВОЙ
+# список --queries, соответствующий ровно одному шагу брифа (например, шаг 4 —
+# только engine_version,row_count_control; шаг 5 — только operations_structure,
+# operation_type_counts), и каждый такой вызов — отдельное действие класса B со
+# своей карточкой. Запуск без --queries или с неизвестным именем отбивается
+# `DiscoveryConfigError` ДО открытия соединения с базой — не молчаливый прогон
+# всего подряд.
+# ---------------------------------------------------------------------------
+
+
+def _open_connection_like_run_daily() -> Any:
+    """Открывает подключение к Firebird ТЕМ ЖЕ способом, что `run_daily.py`
+    (шаг 1 брифа: «переписывать механизм подключения не нужно и не следует»).
+    Импортирует приватные функции того модуля вместо дублирования логики —
+    тот же принцип добавления поверх существующего кода, что `ADR-050` п.10
+    применил к `run_daily.py` относительно `agent.py`."""
+    from connector.agent import run_daily
+
+    run_daily._refresh_jwt()
+    credential_value = run_daily._fetch_db_credential_value()
+    return run_daily._connect_firebird(credential_value)
+
+
+def _resolve_queries(
+    names: Sequence[str], renewal_op_vids: Sequence[int]
+) -> list[NamedQuery]:
+    static_by_name = {q.name: q for q in STATIC_QUERIES}
+    dynamic_by_name = (
+        {q.name: q for q in build_renewal_op_queries(renewal_op_vids)}
+        if renewal_op_vids
+        else {}
     )
+    unknown = [n for n in names if n not in static_by_name and n not in dynamic_by_name]
+    if unknown:
+        known = sorted(set(static_by_name) | set(dynamic_by_name))
+        raise DiscoveryConfigError(
+            f"CONTEXT GAP: --queries называет неизвестные имена {unknown!r} — "
+            f"известные имена этого вызова: {known!r}. Имя не угадывается."
+        )
+    return [static_by_name.get(n) or dynamic_by_name[n] for n in names]
+
+
+def cli_main(argv: Sequence[str]) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "T-0-4a: запуск ИМЕНОВАННОГО подмножества запросов модуля через "
+            "access_point(). --queries обязателен и закрывает ровно ОДИН шаг "
+            "брифа за вызов — не общий 'прогнать всё'."
+        )
+    )
+    parser.add_argument(
+        "--queries",
+        required=True,
+        help="запятая-разделённый список имён запросов (STATIC_QUERIES или динамических)",
+    )
+    parser.add_argument(
+        "--renewal-op-vids",
+        default="",
+        help=(
+            "запятая-разделённые коды OPERATIONS.OP_VID для запросов шагов 7-8 "
+            "(repayment_active_with_renewal_op, renewed_portfolio_share); "
+            "пусто, если вызов их не касается"
+        ),
+    )
+    args = parser.parse_args(list(argv))
+
+    names = [n.strip() for n in args.queries.split(",") if n.strip()]
+    if not names:
+        raise DiscoveryConfigError("CONTEXT GAP: --queries передан пустым — какой шаг исполнять, не названо")
+    renewal_op_vids = tuple(int(v) for v in args.renewal_op_vids.split(",") if v.strip())
+
+    queries = _resolve_queries(names, renewal_op_vids)
+
+    connection = _open_connection_like_run_daily()
+    try:
+        for nq in queries:
+            rows = run_query(connection, nq)
+            if nq.name == "reopen_sample_pairs":
+                print_reopen_pairs(rows)
+    finally:
+        connection.close()
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+
+    logging.basicConfig(level=logging.INFO)
+    try:
+        sys.exit(cli_main(sys.argv[1:]))
+    except DiscoveryConfigError as exc:
+        logger.error("%s", exc)
+        sys.exit(2)

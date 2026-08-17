@@ -85,6 +85,29 @@ def main() -> int:
     except disc.DiscoveryConfigError as exc:
         print(f"[пройдено]  build_renewal_op_queries([]) отбит явным CONTEXT GAP: {exc}")
 
+    # CLI (шаг 3+): _resolve_queries обязан различать известное/неизвестное имя
+    # запроса ДО открытия соединения — проверяется офлайн, без connection вовсе.
+    resolved = disc._resolve_queries(["engine_version", "row_count_control"], ())
+    if [q.name for q in resolved] == ["engine_version", "row_count_control"]:
+        print("[пройдено]  _resolve_queries: известные имена шага 4 резолвятся в те же запросы")
+    else:
+        failed += 1
+        print(f"[ПРОВАЛЕНО] _resolve_queries вернул не то: {[q.name for q in resolved]!r}")
+
+    try:
+        disc._resolve_queries(["not_a_real_query_name"], ())
+        failed += 1
+        print("[ПРОВАЛЕНО] _resolve_queries с неизвестным именем обязан кинуть DiscoveryConfigError, а прошёл")
+    except disc.DiscoveryConfigError as exc:
+        print(f"[пройдено]  _resolve_queries отбивает неизвестное имя явным CONTEXT GAP: {exc}")
+
+    resolved_dynamic = disc._resolve_queries(["repayment_active_with_renewal_op"], (1, 2))
+    if [q.name for q in resolved_dynamic] == ["repayment_active_with_renewal_op"]:
+        print("[пройдено]  _resolve_queries: динамическое имя шага 7 резолвится при переданных renewal_op_vids")
+    else:
+        failed += 1
+        print(f"[ПРОВАЛЕНО] _resolve_queries (динамика) вернул не то: {resolved_dynamic!r}")
+
     print(f"\nитого провалено: {failed}")
     return 1 if failed else 0
 

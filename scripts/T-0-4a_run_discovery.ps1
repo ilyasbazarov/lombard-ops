@@ -1,0 +1,51 @@
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$Queries,
+    [string]$RenewalOpVids = ""
+)
+
+# scripts/T-0-4a_run_discovery.ps1 — обёртка запуска на сервере ERP, брифы T-0-4a
+# (шаги 3+, класс B). Один и тот же файл вызывается НЕСКОЛЬКО раз в ходе задачи —
+# каждый вызов передаёт СВОЙ -Queries, соответствующий ровно ОДНОМУ шагу брифа
+# (05_CONVENTIONS §I, «один скрипт на шаг, а не на команду»), и каждый такой вызов
+# требует своей отдельной карточки подтверждения владельца ПЕРЕД запуском.
+#
+# Переменные окружения ниже — публикуемые факты (11_INFRA_FACTS.md, ADR-051),
+# не секреты: тот же набор, что уже используют scripts/T-0-8_step7_*_wrapper*.ps1
+# на этом сервере. Пароль LOMBARD_RO и приватный ключ подписи в этот файл не
+# попадают — их читает код агента из Secret Manager / файла на сервере.
+
+$ErrorActionPreference = 'Stop'
+$env:Path = "C:\LombardAgent\firebird-client64;" + $env:Path
+$env:PROJECT_ID = "project-c451b48a-07ae-4de4-961"
+$env:LOMBARD_AGENT_ISSUER_URI = "https://erp-agent.lombard-ops.invalid"
+$env:LOMBARD_AGENT_SUBJECT = "lombard-agent-erp01"
+$env:LOMBARD_AGENT_AUDIENCE = "//iam.googleapis.com/projects/450925595005/locations/global/workloadIdentityPools/lombard-agent-federation-pool/providers/lombard-agent-jwt-provider"
+$env:LOMBARD_AGENT_PRIVATE_KEY_PATH = "C:\LombardAgent\keys\private_key.pem"
+$env:LOMBARD_AGENT_KID = "lombard-agent-20260813"
+$env:LOMBARD_AGENT_CREDENTIAL_SOURCE_FILE = "C:\LombardAgent\keys\signed_jwt.txt"
+$env:GOOGLE_APPLICATION_CREDENTIALS = "C:\LombardAgent\keys\credentials.json"
+$env:LOMBARD_DB_CHARSET = "WIN1251"
+if (-not $env:LOMBARD_DB_CHARSET) {
+    Write-Error 'CONTEXT GAP: LOMBARD_DB_CHARSET ne zadan - zapusk nevozmozhen bez parametra podklyucheniya k Firebird.'
+    exit 2
+}
+
+$logDir = "C:\LombardAgent\logs"
+if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
+$stamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$stdoutFile = Join-Path $logDir ("t0_4a_discovery_{0}.out.log" -f $stamp)
+$stderrFile = Join-Path $logDir ("t0_4a_discovery_{0}.err.log" -f $stamp)
+
+$scriptArgs = @(
+    '"C:\LombardAgent\code\connector\agent\discovery_t0_4a.py"',
+    '--queries', $Queries
+)
+if ($RenewalOpVids -ne "") {
+    $scriptArgs += @('--renewal-op-vids', $RenewalOpVids)
+}
+
+$proc = Start-Process -FilePath "C:\Program Files\Python314\python.exe" -ArgumentList $scriptArgs -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
+Add-Content -Path $stdoutFile -Value ("EXITCODE: {0}" -f $proc.ExitCode)
+Add-Content -Path $stdoutFile -Value ("QUERIES: {0}" -f $Queries)
+exit $proc.ExitCode
