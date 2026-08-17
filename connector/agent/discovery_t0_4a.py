@@ -350,6 +350,50 @@ VIN_FIELD_VALUES_EXISTENCE_CHECK = NamedQuery(
     ),
 )
 
+# ТРЕТЬЯ правка (2026-08-18, разбор реального результата шага 9): реальный
+# прогон дал `empty_vehicle_id_count` = (2507, 2093) → 83.5% пустых VIN — но
+# `vin_field_values_existence_check` дал `NON_EMPTY_CNT=426`, а из
+# `empty_vehicle_id_count` следует непустых ОБЪЕКТОВ `2507-2093=414`. Расхождение
+# `426` (строк со значением в CUSTOM_FIELDS_VALUES) против `414` (объектов,
+# у которых EXISTS нашёл хоть одну такую строку) — названо явно, не сглажено
+# (05_CONVENTIONS §I, «расхождение раскладывается по группам ДО вопроса о
+# причине»). Направление разницы (426 > 414) допускает минимум ДВЕ причины,
+# обе правдоподобны без дополнительного факта: (а) у части объектов ДВЕ и
+# более строк CUSTOM_FIELDS_VALUES с непустым VIN на один и тот же ID_OBJ
+# (дубликат ввода) — тогда COUNT(*) считает строки, EXISTS считает объекты
+# один раз, разница в дубликатах; (б) часть строк CUSTOM_FIELDS_VALUES с
+# ID_FIELD=12 ссылается на ID_OBJ, которого нет в SUBJECTS вовсе (осиротевшая
+# запись) — тогда она входит в COUNT(*) до JOIN, но никогда не встретится в
+# EXISTS-подзапросе, коррелированном по реальным строкам SUBJECTS. Два
+# запроса ниже РАЗЛИЧАЮТ эти причины числом, а не предположением.
+VIN_DUPLICATE_CHECK = NamedQuery(
+    name="vin_duplicate_check",
+    sql=(
+        "SELECT COUNT(*) AS ROWS_CNT, COUNT(DISTINCT ID_OBJ) AS DISTINCT_OBJ_CNT "
+        "FROM CUSTOM_FIELDS_VALUES "
+        "WHERE ID_FIELD = 12 AND FIELD_VALUE IS NOT NULL AND TRIM(FIELD_VALUE) <> ''"
+    ),
+    note=(
+        "разбор расхождения 426 vs 414: если DISTINCT_OBJ_CNT=414 — дубликаты "
+        "ID_OBJ полностью объясняют разницу (причина 'а'); если DISTINCT_OBJ_CNT "
+        "ближе к 426 — дубликатов почти нет, смотреть vin_orphan_check"
+    ),
+)
+
+VIN_ORPHAN_CHECK = NamedQuery(
+    name="vin_orphan_check",
+    sql=(
+        "SELECT COUNT(*) AS ORPHAN_COUNT FROM CUSTOM_FIELDS_VALUES v "
+        "WHERE v.ID_FIELD = 12 AND v.FIELD_VALUE IS NOT NULL AND TRIM(v.FIELD_VALUE) <> '' "
+        "AND NOT EXISTS (SELECT 1 FROM SUBJECTS s WHERE s.ID = v.ID_OBJ)"
+    ),
+    note=(
+        "разбор расхождения 426 vs 414, причина 'б': строки CUSTOM_FIELDS_VALUES "
+        "с непустым VIN, чей ID_OBJ не соответствует НИ ОДНОЙ строке SUBJECTS — "
+        "осиротевшие записи, никогда не видны через EXISTS от SUBJECTS"
+    ),
+)
+
 EMPTY_VEHICLE_ID_COUNT = NamedQuery(
     name="empty_vehicle_id_count",
     sql=(
@@ -478,6 +522,8 @@ STATIC_QUERIES: tuple[NamedQuery, ...] = (
     TABLES_TABLE_LOOKUP,
     VIN_FIELD_VALUES_EXISTENCE_CHECK,
     EMPTY_VEHICLE_ID_COUNT,
+    VIN_DUPLICATE_CHECK,
+    VIN_ORPHAN_CHECK,
     EXCHANGE_RATE_DISTRIBUTION,
     USE_EXCHANGE_FLAGS_DISTRIBUTION,
     CONTRACT_TERM_HISTOGRAM,
