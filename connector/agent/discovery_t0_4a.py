@@ -294,17 +294,79 @@ VIN_FIELD_CATALOG = NamedQuery(
     note="шаг 9 подготовка: каталог кандидатов на поле идентификатора объекта (проверка, не смена SUBJ_AUTO_VIN на веру)",
 )
 
+# ВТОРАЯ правка (2026-08-18, реальный прогон шага 9): исходный `empty_vehicle_id_count`
+# содержал ДВА независимых дефекта, найденных реальным прогоном, не офлайн-тестом.
+#
+# Дефект 1 — точное строковое совпадение `NAME = 'SUBJ_AUTO_VIN'` никогда не
+# совпадает: реальное значение `DIR_CUSTOM_FIELDS.NAME` несёт обвязку
+# `'&$DIR_CUSTOM_FIELDS.SUBJ_AUTO_VIN#&'` (шаблон системы, не голое имя) — вскрыто
+# запросом `vin_field_catalog` того же прогона, который дал ДВЕ строки для этого
+# поля: `(ID=12, ID_OBJ_TABLE=9)` и `(ID=22, ID_OBJ_TABLE=16)`. Подзапрос с точным
+# совпадением возвращал NULL, `v.ID_FIELD = NULL` никогда не истинно, `LEFT JOIN`
+# оставался пустым для ВСЕХ строк `SUBJECTS` — результат `EMPTY_VIN=TOTAL_SUBJECTS`
+# (100%) был артефактом синтаксиса, не фактом о портфеле.
+# Правка: использовать УЖЕ ИЗМЕРЕННЫЕ числовые ID (`12`, `22`) напрямую, без
+# нового текстового совпадения по `NAME` вообще — устраняет класс ошибки целиком,
+# не чинит конкретную строку шаблона (которая может ещё раз отличаться формой).
+#
+# Дефект 2 (потенциальный, не проверен фактом, но риск реален) — `ID_FIELD IN
+# (12, 22)` внутри `LEFT JOIN` мог бы УМНОЖИТЬ строки `SUBJECTS`, если бы для
+# одного `s.ID` совпадали ОБА `ID_FIELD` разом (`COUNT(*)` считал бы тогда
+# join-строки, не объекты). Правка — `EXISTS`-подзапрос вместо `LEFT JOIN`:
+# `TOTAL_SUBJECTS` — обычный счёт строк `SUBJECTS`, без всякого join;
+# `EMPTY_VIN` — считает объект пустым, только если НИ ОДНОГО непустого значения
+# нет НИ У ОДНОГО из двух `ID_FIELD`. Значение `ID_OBJ_TABLE` (9 vs 16) сюда не
+# подставляется угадыванием — какая из двух записей относится к `SUBJECTS`,
+# устанавливает отдельный диагностический запрос `tables_table_lookup` ниже;
+# `EXISTS (... ID_FIELD IN (12, 22) ...)` работает корректно независимо от
+# ответа: он не требует знать заранее, какой ID_FIELD "правильный", раз оба
+# кандидата подставлены явно, измеренными числами, а не текстом.
+TABLES_TABLE_LOOKUP = NamedQuery(
+    name="tables_table_lookup",
+    sql=(
+        "SELECT ID, DBTABLE, TABLE_NAME, NAME_CATEG_DOCS, NAME_LOG_OBJ "
+        "FROM TABLES_TABLE WHERE ID IN (9, 16)"
+    ),
+    note=(
+        "диагностика шага 9: чему соответствуют ID_OBJ_TABLE=9 и 16 у двух "
+        "найденных записей SUBJ_AUTO_VIN — не гадание, а измерение по "
+        "справочнику таблиц, который уже входит в девять разрешённых"
+    ),
+)
+
+VIN_FIELD_VALUES_EXISTENCE_CHECK = NamedQuery(
+    name="vin_field_values_existence_check",
+    sql=(
+        "SELECT ID_FIELD, COUNT(*) AS CNT, "
+        "SUM(CASE WHEN FIELD_VALUE IS NOT NULL AND TRIM(FIELD_VALUE) <> '' THEN 1 ELSE 0 END) AS NON_EMPTY_CNT "
+        "FROM CUSTOM_FIELDS_VALUES WHERE ID_FIELD IN (12, 22) GROUP BY ID_FIELD"
+    ),
+    note=(
+        "обратный контроль (ADR-033): считает непустые значения ПО ДВУМ уже "
+        "измеренным ID_FIELD НАПРЯМУЮ из CUSTOM_FIELDS_VALUES, БЕЗ join на "
+        "SUBJECTS — если тут NON_EMPTY_CNT > 0, а empty_vehicle_id_count всё "
+        "равно даёт 100% пустых, значит дефект в join/связи с SUBJECTS, а не "
+        "в данных; если тут тоже 0 — 100% пустых может оказаться реальным фактом"
+    ),
+)
+
 EMPTY_VEHICLE_ID_COUNT = NamedQuery(
     name="empty_vehicle_id_count",
     sql=(
         "SELECT COUNT(*) AS TOTAL_SUBJECTS, "
-        "SUM(CASE WHEN v.FIELD_VALUE IS NULL OR TRIM(v.FIELD_VALUE) = '' THEN 1 ELSE 0 END) AS EMPTY_VIN "
-        "FROM SUBJECTS s "
-        "LEFT JOIN CUSTOM_FIELDS_VALUES v "
-        "ON v.ID_OBJ = s.ID "
-        "AND v.ID_FIELD = (SELECT ID FROM DIR_CUSTOM_FIELDS WHERE NAME = 'SUBJ_AUTO_VIN')"
+        "SUM(CASE WHEN EXISTS ("
+        "SELECT 1 FROM CUSTOM_FIELDS_VALUES v "
+        "WHERE v.ID_OBJ = s.ID AND v.ID_FIELD IN (12, 22) "
+        "AND v.FIELD_VALUE IS NOT NULL AND TRIM(v.FIELD_VALUE) <> ''"
+        ") THEN 0 ELSE 1 END) AS EMPTY_VIN "
+        "FROM SUBJECTS s"
     ),
-    note="шаг 9 / Q-6: счёт объектов с пустым VIN — числом и долей (доля считается вызывающим кодом: EMPTY_VIN / TOTAL_SUBJECTS)",
+    note=(
+        "шаг 9 / Q-6 (ИСПРАВЛЕНО 2026-08-18): счёт объектов с пустым VIN через "
+        "EXISTS по ДВУМ измеренным ID_FIELD (12, 22) — без текстового совпадения "
+        "NAME (дефект 1) и без риска умножения строк LEFT JOIN (дефект 2). "
+        "Доля считается вызывающим кодом: EMPTY_VIN / TOTAL_SUBJECTS."
+    ),
 )
 
 # ---------------------------------------------------------------------------
@@ -413,6 +475,8 @@ STATIC_QUERIES: tuple[NamedQuery, ...] = (
     REOPEN_CONTRACTS_IN_CHAINS,
     REOPEN_SAMPLE_PAIRS,
     VIN_FIELD_CATALOG,
+    TABLES_TABLE_LOOKUP,
+    VIN_FIELD_VALUES_EXISTENCE_CHECK,
     EMPTY_VEHICLE_ID_COUNT,
     EXCHANGE_RATE_DISTRIBUTION,
     USE_EXCHANGE_FLAGS_DISTRIBUTION,
