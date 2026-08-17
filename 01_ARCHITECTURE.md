@@ -19,7 +19,8 @@ ERP-сервер клиента (Windows Server, Firebird 2.5.9 · БД PawnShop
         └──► BigQuery: events (append-only), pricing_snapshots
 [cf-tg-handler]  Cloud Function, webhook Telegram — кнопки «ниже floor»
 [app-lombard]    Cloud Run: React + API в одном сервисе, за Identity Platform
-                 экраны: реестр · карточка займа (?id=) · форма осмотра · /catalog · /offer
+                 экраны: вход · реестр · карточка займа (?id=) · форма осмотра · /catalog · /offer
+                 состав экранов, адреса, роли и переходы — 12_UX_CONTRACT (ADR-065)
 [GCS]            фото залогов photos/{VIN}/{timestamp}/ · конфиги · cfsource
 [Secret Manager] telegram-bot-token · креды read-only пользователя Firebird · chat_id
 ```

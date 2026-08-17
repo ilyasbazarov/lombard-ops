@@ -400,7 +400,7 @@ CONTEXT GAP: <что отсутствует и почему без него не
 
 ### Структура репозитория
 ```
-/            00–11 .md — база знаний (плоско)
+/            00–12 .md — база знаний (плоско); 12 заведён ADR-065
 /briefs      _GENERATOR.md + брифы задач
 /sql         ddl/*.sql, status.sql, pricing.sql, dq.sql
 /connector   Firebird → BigQuery (Cloud Run Job)
