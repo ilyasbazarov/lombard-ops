@@ -4,7 +4,8 @@ functions/cf_daily/test_telegram_send.py — T-1-0, шаг 3
 Тест отправки в Telegram на мокнутом HTTP-вызове (без сети) плюс проверка
 брифа: сплошной поиск `secretmanager` в `telegram_send.py` даёт 0 совпадений
 (модуль не читает секреты сам). Запуск:
-`python3 -m functions.cf_daily.test_telegram_send` из корня репозитория.
+`cd functions/cf_daily && python3 test_telegram_send.py` — корень импорта
+совпадает с контейнером (`/workspace`).
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from functions.cf_daily.telegram_send import TelegramSendError, send_message
+from telegram_send import TelegramSendError, send_message
 
 _checks: list[tuple[str, Any]] = []
 

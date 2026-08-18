@@ -3,7 +3,8 @@ functions/cf_daily/test_main.py — T-1-0, шаг 4
 
 Тест точки входа `cf_daily` на моках всех четырёх внешних клиентов (GCS, BQ,
 Secret Manager, Telegram) — без сети. Запуск:
-`python3 -m functions.cf_daily.test_main` из корня репозитория.
+`cd functions/cf_daily && python3 test_main.py` — корень импорта совпадает
+с контейнером (`/workspace`).
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ import sys
 import traceback
 from typing import Any
 
-from functions.cf_daily.main import (
+from main import (
     PipelineError,
     find_latest_contracts_blob,
     run_pipeline,

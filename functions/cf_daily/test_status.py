@@ -3,7 +3,8 @@ functions/cf_daily/test_status.py — T-1-0, шаг 2
 
 По одной проверке на каждую строку таблицы порогов `03_BUSINESS_SPEC.md §1`
 плюс граничные значения (−7 включительно, −6 включительно). Запуск:
-`python3 -m functions.cf_daily.test_status` из корня репозитория.
+`cd functions/cf_daily && python3 test_status.py` — корень импорта совпадает
+с контейнером (`/workspace`).
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ import sys
 import traceback
 from typing import Any
 
-from functions.cf_daily.status import (
+from status import (
     ASSESSOR,
     MANAGER,
     OWNER,

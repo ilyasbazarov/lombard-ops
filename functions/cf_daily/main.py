@@ -27,7 +27,9 @@ import logging
 import os
 from typing import Any, Callable
 
-from functions.cf_daily import bq_loader, status, telegram_send
+import bq_loader
+import status
+import telegram_send
 
 logger = logging.getLogger("lombard.cf_daily.main")
 

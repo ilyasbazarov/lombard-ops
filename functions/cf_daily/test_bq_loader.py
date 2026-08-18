@@ -2,8 +2,8 @@
 functions/cf_daily/test_bq_loader.py — T-1-0, шаг 1
 
 Тест загрузчика BQ на фикстуре из 2-3 строк, без сети — GCS и BQ-клиент мокнуты
-фиктивными объектами. Запуск: `python3 -m functions.cf_daily.test_bq_loader` из
-корня репозитория — печатает `провалено N`.
+фиктивными объектами. Запуск: `cd functions/cf_daily && python3 test_bq_loader.py` —
+корень импорта совпадает с контейнером (`/workspace`), печатает `провалено N`.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import sys
 import traceback
 from typing import Any
 
-from functions.cf_daily.bq_loader import (
+from bq_loader import (
     GcsPathError,
     LOANS_RAW_SCHEMA_FIELDS,
     load_contracts_blob,
