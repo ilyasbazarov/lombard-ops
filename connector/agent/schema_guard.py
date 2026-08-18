@@ -17,9 +17,16 @@ Guard схемы Firebird (`ADR-004`, `00 §3-БИС(c)`): перед чтени
 заводится задачей `T-0-10`, не этой. Пока его нет, эталон живёт в
 `connector/agent/schema_fingerprint.json` — файле ЭТОЙ задачи. **Первый прогон
 создаёт отпечаток и печатает его, сверка включается со второго** — это записывается
-логом явно, а не обходится молча (требование шага 4 брифа `T-0-8`). Когда `T-0-10`
-заведёт `connector/mapping.json` с разделом `schema_fingerprint`, источник эталона
-переключается решением, а не этим модулем тихо.
+логом явно, а не обходится молча (требование шага 4 брифа `T-0-8`).
+
+**Источник эталона переключён `ADR-080` (`T-0-10`), одной точкой выбора, не
+переписыванием модуля.** `DEFAULT_FINGERPRINT_PATH` резолвится так:
+`connector/mapping.json`, если он существует и несёт раздел `schema_fingerprint`
+(девять used-таблиц, форма `{table: [[COLUMN_NAME, FIELD_TYPE, FIELD_LENGTH,
+FIELD_SCALE], …]}`, отсортировано по `POS`) — читается именно этот раздел, не файл
+целиком. Иначе — прежнее поведение: бутстрап `connector/agent/schema_fingerprint.json`,
+первый прогон его создаёт. Уже отгруженный код `T-0-8` этим не ломается:
+`schema_fingerprint.json` не удаляется, остаётся историческим запасным путём.
 """
 
 from __future__ import annotations
@@ -33,7 +40,34 @@ from connector.agent.access_point import access_point
 
 logger = logging.getLogger("lombard.agent.schema_guard")
 
-DEFAULT_FINGERPRINT_PATH = Path(__file__).with_name("schema_fingerprint.json")
+MAPPING_PATH = Path(__file__).resolve().parent.parent / "mapping.json"
+_LEGACY_FINGERPRINT_PATH = Path(__file__).with_name("schema_fingerprint.json")
+
+
+def _mapping_has_fingerprint(path: Path) -> bool:
+    """`connector/mapping.json` несёт раздел `schema_fingerprint`? Файл читается
+    целиком только для этой проверки — если он битый или без раздела, источник не
+    переключается (ADR-080 п.2), молчаливого падения на пустой эталон не происходит."""
+    if not path.exists():
+        return False
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return False
+    return isinstance(data, dict) and isinstance(data.get("schema_fingerprint"), dict)
+
+
+def _resolve_default_fingerprint_path() -> Path:
+    """Одна точка выбора источника эталона (`ADR-080` п.2): `connector/mapping.json`,
+    если существует и несёт `schema_fingerprint`; иначе прежний бутстрап-путь
+    `schema_fingerprint.json` (`T-0-8`), поведение не ломается."""
+    if _mapping_has_fingerprint(MAPPING_PATH):
+        return MAPPING_PATH
+    return _LEGACY_FINGERPRINT_PATH
+
+
+DEFAULT_FINGERPRINT_PATH = _resolve_default_fingerprint_path()
 
 
 class SchemaGuardMismatch(Exception):
@@ -63,10 +97,19 @@ def _clean(value: Any) -> Any:
     return value
 
 
-def fingerprint_table(connection: Any, table_name: str) -> list[list[Any]]:
+def fingerprint_table(
+    connection: Any, table_name: str, *, transaction_factory: Any = None
+) -> list[list[Any]]:
     """Снимает отпечаток одной таблицы через `access_point` — тот же контролируемый
-    путь, что и для данных, никакого отдельного бэкдора к метаданным нет."""
-    rows = access_point(connection, _FINGERPRINT_SQL, (table_name,))
+    путь, что и для данных, никакого отдельного бэкдора к метаданным нет.
+    `transaction_factory` — та же точка подмены, что у `access_point` (по умолчанию
+    `None`, тогда используется штатный `fdb`-путь `access_point`); тестам (mock-
+    соединение, `test_schema_guard.py`) передаётся явно, тем же приёмом, что
+    `test_access_point.py`."""
+    kwargs: dict[str, Any] = {}
+    if transaction_factory is not None:
+        kwargs["transaction_factory"] = transaction_factory
+    rows = access_point(connection, _FINGERPRINT_SQL, (table_name,), **kwargs)
     fingerprint = [[_clean(v) for v in row] for row in rows]
     if not fingerprint:
         raise SchemaGuardMismatch(
@@ -83,13 +126,30 @@ def column_names(fingerprint: list[list[Any]]) -> list[str]:
 
 
 def load_reference(path: Path = DEFAULT_FINGERPRINT_PATH) -> dict[str, Any] | None:
+    """Эталон плоским словарём `{table: fingerprint}` — независимо от того, читается
+    ли он из бутстрап-файла (плоский изначально) или из `mapping.json` (раздел
+    `schema_fingerprint` внутри, извлекается здесь, файл целиком наружу не идёт)."""
     if not path.exists():
         return None
     with path.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
+        data = json.load(fh)
+    if path == MAPPING_PATH:
+        fingerprint = data.get("schema_fingerprint")
+        return fingerprint if isinstance(fingerprint, dict) else None
+    return data
 
 
 def save_reference(data: dict[str, Any], path: Path = DEFAULT_FINGERPRINT_PATH) -> None:
+    """Бутстрап-запись эталона (первый прогон без эталона вовсе). `mapping.json` —
+    курируемый файл `T-0-10`/`ADR-080` с разделами помимо `schema_fingerprint`;
+    затирать его плоским словарём здесь запрещено — если источник резолвился в
+    `mapping.json`, эталон уже есть, `save_reference` в этой ветке не вызывается
+    (см. `guard_check`); вызов с `path == MAPPING_PATH` — ошибка использования."""
+    if path == MAPPING_PATH:
+        raise ValueError(
+            "save_reference не пишет в connector/mapping.json — это курируемый "
+            "файл T-0-10/ADR-080, не бутстрап-артефакт guard'а"
+        )
     with path.open("w", encoding="utf-8") as fh:
         json.dump(data, fh, ensure_ascii=False, indent=2, sort_keys=True)
         fh.write("\n")
@@ -99,6 +159,8 @@ def guard_check(
     connection: Any,
     table_names: list[str],
     path: Path = DEFAULT_FINGERPRINT_PATH,
+    *,
+    transaction_factory: Any = None,
 ) -> dict[str, list[list[Any]]]:
     """Снимает отпечаток КАЖДОЙ разрешённой таблицы и сверяет с эталоном.
 
@@ -109,8 +171,14 @@ def guard_check(
     Эталон есть и разошёлся → `SchemaGuardMismatch`, чтение НЕ выполняется вообще —
     ни для одной из девяти таблиц, даже для тех, что совпали: расхождение схемы
     ставит под сомнение весь снимок, а не одну таблицу.
+
+    `transaction_factory` пробрасывается в `fingerprint_table` — точка подмены для
+    `test_schema_guard.py` (mock-соединение, ADR-080 п.3), в проде не передаётся.
     """
-    measured = {t: fingerprint_table(connection, t) for t in table_names}
+    measured = {
+        t: fingerprint_table(connection, t, transaction_factory=transaction_factory)
+        for t in table_names
+    }
 
     reference = load_reference(path)
     if reference is None:
