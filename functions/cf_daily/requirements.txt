@@ -1,0 +1,11 @@
+# functions/cf_daily/requirements.txt — T-1-0, шаг 5
+#
+# `requests` НЕ включён (решение исполнителя, зафиксировано в
+# reference/T-1-0_tracer_bullet_2026-08-18.md): telegram_send.py делает один
+# вызов без сессий и ретраев (05 §II «Ограничения» брифа), стандартной
+# urllib.request достаточно — лишняя зависимость на холодном старте не
+# оправдана.
+functions-framework>=3.5
+google-cloud-storage>=2.0
+google-cloud-bigquery>=3.11
+google-cloud-secret-manager>=2.16
