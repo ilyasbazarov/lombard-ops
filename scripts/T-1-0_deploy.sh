@@ -41,7 +41,7 @@ part1_deploy_function() {
     --no-allow-unauthenticated \
     --service-account="${SA_EMAIL}" \
     --set-env-vars="PROJECT_ID=${PROJECT_ID}" \
-    --build-service-account=projects/project-c451b48a-07ae-4de4-961/serviceAccounts/450925595005@cloudbuild.gserviceaccount.com \
+    --build-service-account=projects/project-c451b48a-07ae-4de4-961/serviceAccounts/lombard-build@project-c451b48a-07ae-4de4-961.iam.gserviceaccount.com \
     --project="${PROJECT_ID}"
 
   echo "=== Приёмка части 1: describe (ожидается ACTIVE, URL) ==="
