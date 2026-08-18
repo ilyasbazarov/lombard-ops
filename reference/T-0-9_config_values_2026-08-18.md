@@ -86,3 +86,17 @@ $ python3 -c "import json; print(list(json.load(open('connector/config.json'))))
 
 Заливка `connector/config.json` в `gs://${PROJECT_ID}-config/config.json` — облачный ресурс, класс
 B, ждёт подтверждения владельца отдельной карточкой (шаг 6 брифа `T-0-9`).
+
+## Шаг 6 (класс B) — заливка в GCS, исполнена
+
+**Подтверждено владельцем.** Объект новый (первая заливка), откат — `gsutil rm`.
+
+```
+$ gsutil cp connector/config.json gs://project-c451b48a-07ae-4de4-961-config/config.json
+Operation completed over 1 objects/251.0 B.
+
+$ gsutil cat gs://project-c451b48a-07ae-4de4-961-config/config.json
+{... совпадает с connector/config.json побайтово ...}
+```
+
+`T-0-9` закрыта целиком: классы A и B оба исполнены и приняты.
