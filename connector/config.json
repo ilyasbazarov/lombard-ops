@@ -1,0 +1,14 @@
+{
+  "status_offsets_days": {
+    "attention": -6,
+    "overdue": 2,
+    "premarketing": 16,
+    "realization": 32
+  },
+  "floor_pct": {
+    "green": 0.85,
+    "yellow": 0.90
+  },
+  "depreciation_per_10_days": 0.01,
+  "staleness_threshold_hours": 26
+}
