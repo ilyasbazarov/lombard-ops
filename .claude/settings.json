@@ -16,7 +16,11 @@
       "Bash(date)",
       "Bash(date:*)",
       "Bash(ls)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(bash tools/hooks/selftest.sh)",
+      "Bash(bash tools/session_status.sh)",
+      "Bash(bash tools/answer_stats.sh:*)",
+      "Bash(bash tools/hooks/answer_check.sh:*)"
     ],
     "ask": [
       "Bash(git push)",
@@ -36,6 +40,35 @@
       "Bash(rm -fr:*)",
       "Bash(rm -R:*)",
       "Bash(rm -Rf:*)"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/tools/hooks/answer_form_reminder.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/tools/hooks/answer_check.sh\"",
+            "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/tools/hooks/answer_judge.sh\"",
+            "timeout": 60
+          }
+        ]
+      }
     ]
   }
 }

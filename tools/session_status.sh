@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tools/session_status.sh — состояние старта сессии одной командой (M-4, ADR-022).
-# Пять счётчиков, каждый — число плюс совпавшие строки. Вердикт положительным счётчиком,
+# Восемь счётчиков, каждый — число плюс совпавшие строки. Вердикт положительным счётчиком,
 # не голым листингом: пусто и один служебный файл не должны выглядеть одинаково.
 set -u
 
@@ -181,6 +181,50 @@ else
     dirty=1
 fi
 echo "фактический расход сессий сверяется человеком по стенд-апу: механического источника нет."
+echo
+
+# --- 8. Исполнитель формы ответа: подключён ли и на месте ли (ADR-074) ---------
+# Правило формы держится не памятью модели, а хуками. Их можно потерять молча: файл
+# настроек правится руками, скрипт переименовывается, право на исполнение слетает при
+# переносе. Счётчик печатает ЧИСЛО недостающих частей, а не «всё хорошо»: тихо
+# отключившаяся проверка хуже отсутствующей — правило считается исполняемым, а
+# исполнителя нет. Что проверка РАБОТАЕТ, а не просто лежит, показывает самотест
+# (ритуал старта п.4): здесь мерится только подключение.
+echo "-- 8. Исполнитель формы ответа владельцу (хуки Stop и UserPromptSubmit) --"
+answer_missing=0
+answer_out=""
+for part in tools/hooks/answer_check.sh tools/hooks/answer_extract.py tools/hooks/answer_form_reminder.sh tools/answer_stats.sh; do
+    if [ -f "$part" ]; then
+        answer_out="${answer_out}есть: ${part}
+"
+    else
+        answer_out="${answer_out}НЕТ ФАЙЛА: ${part}
+"
+        answer_missing=$((answer_missing+1))
+    fi
+done
+for wired in answer_check.sh answer_form_reminder.sh; do
+    if grep -qF "$wired" .claude/settings.json 2>/dev/null; then
+        answer_out="${answer_out}подключён в .claude/settings.json: ${wired}
+"
+    else
+        answer_out="${answer_out}НЕ ПОДКЛЮЧЁН в .claude/settings.json: ${wired}
+"
+        answer_missing=$((answer_missing+1))
+    fi
+done
+if [ -f .claude/answer_judge.on ]; then
+    answer_out="${answer_out}судья упаковки: ВКЛЮЧЁН (.claude/answer_judge.on), выборка каждый N-й ответ
+"
+else
+    answer_out="${answer_out}судья упаковки: выключен по расходу (ADR-074 §6) — это решение, не поломка
+"
+fi
+echo "count=${answer_missing}"
+printf '%s' "$answer_out"
+if [ "$answer_missing" -gt 0 ]; then
+    dirty=1
+fi
 echo
 
 echo "=== ВЕРДИКТ ==="
