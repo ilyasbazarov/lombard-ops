@@ -1,0 +1,9 @@
+# connector/raw_loader/requirements.txt — T-1-1, шаг 6
+#
+# Cloud Run Job, не Cloud Function: `functions-framework` не нужен (нет HTTP-
+# триггера). `telegram_send.py` использует стандартную `urllib.request`
+# (решение зафиксировано в самом модуле, скопирован байт-в-байт из
+# functions/cf_daily) — requests не добавляется.
+google-cloud-storage>=2.0
+google-cloud-bigquery>=3.11
+google-cloud-secret-manager>=2.16

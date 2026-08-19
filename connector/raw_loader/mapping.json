@@ -1,0 +1,1059 @@
+{
+  "version": "1.0",
+  "source": "meta_out.txt (2026-08-18, вне репозитория)",
+  "generated_by": "T-0-10: reference/T-0-10_mapping_fingerprint_2026-08-18.md, parse_meta2.py",
+  "table_count": 9,
+  "column_count": 124,
+  "schema_fingerprint": {
+    "CONTRACTS": [
+      [
+        "CONTRACT_ID",
+        8,
+        4,
+        0
+      ],
+      [
+        "FILIAL_ID",
+        8,
+        4,
+        0
+      ],
+      [
+        "CLIENT_ID",
+        8,
+        4,
+        0
+      ],
+      [
+        "AGENT_ID",
+        8,
+        4,
+        0
+      ],
+      [
+        "CONTRACT_NUM",
+        37,
+        320,
+        0
+      ],
+      [
+        "CONTRACT_DATE",
+        12,
+        4,
+        0
+      ],
+      [
+        "CONTRACT_STATE",
+        7,
+        2,
+        0
+      ],
+      [
+        "CONTRACT_CLOSE",
+        12,
+        4,
+        0
+      ],
+      [
+        "IS_ARCHIVE",
+        7,
+        2,
+        0
+      ],
+      [
+        "MODIFY_DATE",
+        35,
+        8,
+        0
+      ],
+      [
+        "NOTE",
+        37,
+        1020,
+        0
+      ],
+      [
+        "ID_NATIVE",
+        8,
+        4,
+        0
+      ],
+      [
+        "ID_PREV_CONTRACT",
+        8,
+        4,
+        0
+      ],
+      [
+        "BCODE",
+        37,
+        80,
+        0
+      ],
+      [
+        "PLAN_CLOSE_DATE",
+        12,
+        4,
+        0
+      ],
+      [
+        "DEPOSIT_SUM",
+        16,
+        8,
+        0
+      ],
+      [
+        "SUBJECT_PRICE",
+        16,
+        8,
+        0
+      ],
+      [
+        "DEPOSIT_TYPE",
+        8,
+        4,
+        0
+      ],
+      [
+        "ID_DEPOSIT_PLACE",
+        8,
+        4,
+        0
+      ],
+      [
+        "EXCHANGE_RATE",
+        8,
+        4,
+        0
+      ],
+      [
+        "IS_USED_IN_STATISTICS",
+        7,
+        2,
+        0
+      ],
+      [
+        "SUM_ROUND_PRECISION",
+        8,
+        4,
+        0
+      ],
+      [
+        "ALLOW_SMS",
+        7,
+        2,
+        0
+      ],
+      [
+        "NOTE_ON_CLOSE_CONTRACT",
+        37,
+        1020,
+        0
+      ],
+      [
+        "IS_NOT_CALC_FIRST_DAY",
+        7,
+        2,
+        0
+      ]
+    ],
+    "CONTRACTS_TERMS": [
+      [
+        "ID_TERM",
+        8,
+        4,
+        0
+      ],
+      [
+        "CONTRACT_ID",
+        8,
+        4,
+        0
+      ],
+      [
+        "PENALTY_DAYS",
+        7,
+        2,
+        0
+      ],
+      [
+        "DEPOSIT_PERC",
+        16,
+        8,
+        -5
+      ],
+      [
+        "PENALTY_PERC",
+        16,
+        8,
+        -5
+      ],
+      [
+        "IS_PERC_STOP_W_PEN",
+        7,
+        2,
+        0
+      ],
+      [
+        "EXCEED_DAYS",
+        8,
+        4,
+        0
+      ],
+      [
+        "EXCEED_MONTHS",
+        8,
+        4,
+        0
+      ],
+      [
+        "IS_PRIVILEGE_IN_EXCEED_DAYS",
+        7,
+        2,
+        0
+      ],
+      [
+        "IS_PENAL_FROM_RET_SUM",
+        7,
+        2,
+        0
+      ],
+      [
+        "MIN_PERC_DAYS",
+        8,
+        4,
+        0
+      ],
+      [
+        "STORAGE_TYPE",
+        8,
+        4,
+        0
+      ],
+      [
+        "STORAGE_VAL",
+        16,
+        8,
+        -5
+      ],
+      [
+        "IS_STORAGE_STOP_W_PEN",
+        7,
+        2,
+        0
+      ],
+      [
+        "STORAGE_MIN_DAYS",
+        8,
+        4,
+        0
+      ],
+      [
+        "USE_EXCHANGE",
+        7,
+        2,
+        0
+      ],
+      [
+        "USE_EXCHANGE_IF_INCREASE",
+        7,
+        2,
+        0
+      ],
+      [
+        "IS_PAY_PERC_ON_FUTURE",
+        7,
+        2,
+        0
+      ],
+      [
+        "ACC_PAY_SCHEME",
+        37,
+        20,
+        0
+      ],
+      [
+        "INSURE_TYPE",
+        8,
+        4,
+        0
+      ],
+      [
+        "INSURE_VAL",
+        16,
+        8,
+        -5
+      ],
+      [
+        "IS_INSURE_STOP_W_PEN",
+        7,
+        2,
+        0
+      ],
+      [
+        "INSURE_MIN_DAYS",
+        8,
+        4,
+        0
+      ],
+      [
+        "START_MOMENT",
+        8,
+        4,
+        0
+      ],
+      [
+        "ID_OP",
+        8,
+        4,
+        0
+      ],
+      [
+        "TARIFF_NAME",
+        37,
+        320,
+        0
+      ],
+      [
+        "ID_TARIF",
+        8,
+        4,
+        0
+      ],
+      [
+        "IS_AUTO_ON_SALE",
+        7,
+        2,
+        0
+      ],
+      [
+        "IS_CLOSE_VIA_SMS",
+        7,
+        2,
+        0
+      ],
+      [
+        "IS_CLOSE_VIA_PHOTO",
+        7,
+        2,
+        0
+      ]
+    ],
+    "SUBJECTS": [
+      [
+        "ID",
+        8,
+        4,
+        0
+      ],
+      [
+        "ID_CONTRACT",
+        8,
+        4,
+        0
+      ],
+      [
+        "NAME",
+        37,
+        1020,
+        0
+      ],
+      [
+        "PRICE",
+        16,
+        8,
+        0
+      ],
+      [
+        "DEPOSIT_SUM",
+        16,
+        8,
+        0
+      ],
+      [
+        "ITEMS_COUNT",
+        8,
+        4,
+        0
+      ],
+      [
+        "ID_NATIVE",
+        8,
+        4,
+        0
+      ],
+      [
+        "NOTE",
+        37,
+        28672,
+        0
+      ],
+      [
+        "ID_BCODE_SUBJ",
+        8,
+        4,
+        0
+      ],
+      [
+        "ID_FILES_PHOTO",
+        8,
+        4,
+        0
+      ]
+    ],
+    "CUSTOM_FIELDS_VALUES": [
+      [
+        "ID",
+        8,
+        4,
+        0
+      ],
+      [
+        "ID_FIELD",
+        8,
+        4,
+        0
+      ],
+      [
+        "ID_OBJ",
+        8,
+        4,
+        0
+      ],
+      [
+        "FIELD_VALUE",
+        37,
+        28672,
+        0
+      ]
+    ],
+    "DIR_CUSTOM_FIELDS": [
+      [
+        "ID",
+        8,
+        4,
+        0
+      ],
+      [
+        "ID_OBJ_TABLE",
+        8,
+        4,
+        0
+      ],
+      [
+        "NAME",
+        37,
+        1020,
+        0
+      ],
+      [
+        "DEFAULT_VALUE",
+        37,
+        28672,
+        0
+      ],
+      [
+        "DOC_CODE",
+        37,
+        320,
+        0
+      ],
+      [
+        "SORT_ORDER",
+        8,
+        4,
+        0
+      ],
+      [
+        "ID_SUB_TYPE",
+        8,
+        4,
+        0
+      ],
+      [
+        "FIELD_TYPE",
+        8,
+        4,
+        0
+      ],
+      [
+        "CB_ITEMS",
+        37,
+        1020,
+        0
+      ],
+      [
+        "IS_REQURIED",
+        7,
+        2,
+        0
+      ]
+    ],
+    "TABLES_TABLE": [
+      [
+        "ID",
+        8,
+        4,
+        0
+      ],
+      [
+        "DBTABLE",
+        37,
+        320,
+        0
+      ],
+      [
+        "TABLE_NAME",
+        37,
+        320,
+        0
+      ],
+      [
+        "NAME_CATEG_DOCS",
+        37,
+        320,
+        0
+      ],
+      [
+        "NAME_LOG_OBJ",
+        37,
+        320,
+        0
+      ],
+      [
+        "SQL_GET_LOG_OBJ",
+        37,
+        1020,
+        0
+      ]
+    ],
+    "CONTRACT_STATES": [
+      [
+        "STATE_ID",
+        7,
+        2,
+        0
+      ],
+      [
+        "CODE",
+        37,
+        320,
+        0
+      ],
+      [
+        "SORT_ORDER",
+        8,
+        4,
+        0
+      ]
+    ],
+    "DEPOSIT_TYPES": [
+      [
+        "ID",
+        8,
+        4,
+        0
+      ],
+      [
+        "CODE",
+        37,
+        320,
+        0
+      ]
+    ],
+    "OPERATIONS": [
+      [
+        "OP_ID",
+        8,
+        4,
+        0
+      ],
+      [
+        "DEPOSIT_ID",
+        8,
+        4,
+        0
+      ],
+      [
+        "OP_VID",
+        7,
+        2,
+        0
+      ],
+      [
+        "OP_DATE",
+        12,
+        4,
+        0
+      ],
+      [
+        "NON_CALC_DAYS",
+        8,
+        4,
+        0
+      ],
+      [
+        "OP_SUM",
+        16,
+        8,
+        0
+      ],
+      [
+        "OP_PERC_SUM_MAIN",
+        16,
+        8,
+        0
+      ],
+      [
+        "OP_PERC_SUM_ADD",
+        16,
+        8,
+        0
+      ],
+      [
+        "OP_STORAGE_SUM",
+        16,
+        8,
+        0
+      ],
+      [
+        "OP_PENALTY_SUM",
+        16,
+        8,
+        0
+      ],
+      [
+        "OP_INFO",
+        37,
+        1020,
+        0
+      ],
+      [
+        "ID_NATIVE",
+        8,
+        4,
+        0
+      ],
+      [
+        "OP_REST_PERC_MAIN",
+        16,
+        8,
+        0
+      ],
+      [
+        "OP_REST_STORAGE_MAIN",
+        16,
+        8,
+        0
+      ],
+      [
+        "OP_REST_PENALTY_MAIN",
+        16,
+        8,
+        0
+      ],
+      [
+        "OP_REST_BASE",
+        16,
+        8,
+        0
+      ],
+      [
+        "OP_REST_PERC_ADD",
+        16,
+        8,
+        0
+      ],
+      [
+        "OP_REST_STORAGE_ADD",
+        16,
+        8,
+        0
+      ],
+      [
+        "OP_REST_PENALTY_ADD",
+        16,
+        8,
+        0
+      ],
+      [
+        "PERC_ACC_DAYS",
+        8,
+        4,
+        0
+      ],
+      [
+        "STOR_ACC_DAYS",
+        8,
+        4,
+        0
+      ],
+      [
+        "PEN_ACC_DAYS",
+        8,
+        4,
+        0
+      ],
+      [
+        "OP_INSURE_SUM",
+        16,
+        8,
+        0
+      ],
+      [
+        "OP_REST_INSURE_MAIN",
+        16,
+        8,
+        0
+      ],
+      [
+        "OP_REST_INSURE_ADD",
+        16,
+        8,
+        0
+      ],
+      [
+        "INSURE_ACC_DAYS",
+        8,
+        4,
+        0
+      ],
+      [
+        "CASH",
+        16,
+        8,
+        0
+      ],
+      [
+        "CHANGE",
+        16,
+        8,
+        0
+      ],
+      [
+        "REFIN_SUM_DBL",
+        27,
+        8,
+        0
+      ],
+      [
+        "OP_REST_PERC_MAIN_DBL",
+        27,
+        8,
+        0
+      ],
+      [
+        "IS_ONLINE",
+        7,
+        2,
+        0
+      ],
+      [
+        "ID_ONLINE_FILIAL",
+        8,
+        4,
+        0
+      ],
+      [
+        "ID_ONLINE_NATIVE",
+        8,
+        4,
+        0
+      ],
+      [
+        "ID_AGENT",
+        8,
+        4,
+        0
+      ]
+    ]
+  },
+  "field_mapping": {
+    "contract_id": [
+      {
+        "table": "CONTRACTS",
+        "column": "CONTRACT_ID",
+        "firebird_type": {
+          "ftype": 8,
+          "flen": 4,
+          "fscale": 0
+        },
+        "descr_ru": "Таблица: список договоров",
+        "oracle": "not_assessed"
+      }
+    ],
+    "contract_num": [
+      {
+        "table": "CONTRACTS",
+        "column": "CONTRACT_NUM",
+        "firebird_type": {
+          "ftype": 37,
+          "flen": 320,
+          "fscale": 0
+        },
+        "descr_ru": "Номер договора",
+        "oracle": "not_assessed"
+      }
+    ],
+    "vehicle_id_vin": [
+      {
+        "table": "CUSTOM_FIELDS_VALUES",
+        "column": "FIELD_VALUE",
+        "firebird_type": {
+          "ftype": 37,
+          "flen": 28672,
+          "fscale": 0
+        },
+        "descr_ru": "Значение настраиваемого поля",
+        "oracle": "not_assessed"
+      },
+      {
+        "table": "CUSTOM_FIELDS_VALUES",
+        "column": "ID_FIELD",
+        "firebird_type": {
+          "ftype": 8,
+          "flen": 4,
+          "fscale": 0
+        },
+        "descr_ru": "ID настраиваемого поля (ID из DIR_CUSTOM_FIELDS)",
+        "oracle": "not_assessed"
+      },
+      {
+        "table": "CUSTOM_FIELDS_VALUES",
+        "column": "ID_OBJ",
+        "firebird_type": {
+          "ftype": 8,
+          "flen": 4,
+          "fscale": 0
+        },
+        "descr_ru": "ID объекта системы, например, ID клиента",
+        "oracle": "not_assessed"
+      },
+      {
+        "table": "SUBJECTS",
+        "column": "ID",
+        "firebird_type": {
+          "ftype": 8,
+          "flen": 4,
+          "fscale": 0
+        },
+        "descr_ru": "Таблица: предметы залога по договору",
+        "oracle": "not_assessed"
+      },
+      {
+        "table": "DIR_CUSTOM_FIELDS",
+        "column": "NAME",
+        "firebird_type": {
+          "ftype": 37,
+          "flen": 1020,
+          "fscale": 0
+        },
+        "descr_ru": "Наименование настраиваемого поля",
+        "oracle": "not_assessed"
+      }
+    ],
+    "issue_date": [
+      {
+        "table": "CONTRACTS",
+        "column": "CONTRACT_DATE",
+        "firebird_type": {
+          "ftype": 12,
+          "flen": 4,
+          "fscale": 0
+        },
+        "descr_ru": "Дата заключения договора",
+        "oracle": "not_assessed"
+      }
+    ],
+    "due_date": [
+      {
+        "table": "CONTRACTS",
+        "column": "PLAN_CLOSE_DATE",
+        "firebird_type": {
+          "ftype": 12,
+          "flen": 4,
+          "fscale": 0
+        },
+        "descr_ru": "Дата планируемого закрытия договора (от последней операции)",
+        "oracle": "not_assessed"
+      }
+    ],
+    "loan_amount": [
+      {
+        "table": "CONTRACTS",
+        "column": "DEPOSIT_SUM",
+        "firebird_type": {
+          "ftype": 16,
+          "flen": 8,
+          "fscale": 0
+        },
+        "descr_ru": "Сумма кредита, коп.",
+        "oracle": "not_assessed"
+      }
+    ],
+    "rate": [
+      {
+        "table": "CONTRACTS_TERMS",
+        "column": "DEPOSIT_PERC",
+        "firebird_type": {
+          "ftype": 16,
+          "flen": 8,
+          "fscale": -5
+        },
+        "descr_ru": "Процент по договору (%*100), за период длительности договора",
+        "oracle": "not_assessed"
+      }
+    ],
+    "penalty_rules": [
+      {
+        "table": "CONTRACTS_TERMS",
+        "column": "PENALTY_PERC",
+        "firebird_type": {
+          "ftype": 16,
+          "flen": 8,
+          "fscale": -5
+        },
+        "descr_ru": "Проценты штрафа (%*100), за один день просрочки",
+        "oracle": "not_assessed"
+      },
+      {
+        "table": "CONTRACTS_TERMS",
+        "column": "PENALTY_DAYS",
+        "firebird_type": {
+          "ftype": 7,
+          "flen": 2,
+          "fscale": 0
+        },
+        "descr_ru": "Число дней до штрафа",
+        "oracle": "not_assessed"
+      },
+      {
+        "table": "CONTRACTS_TERMS",
+        "column": "IS_PENAL_FROM_RET_SUM",
+        "firebird_type": {
+          "ftype": 7,
+          "flen": 2,
+          "fscale": 0
+        },
+        "descr_ru": "Пеня рассчитывается от суммы возврата (сумма возврата = кредит + начисленные проценты за срок договора)",
+        "oracle": "not_assessed"
+      }
+    ],
+    "storage": [
+      {
+        "table": "CONTRACTS_TERMS",
+        "column": "STORAGE_TYPE",
+        "firebird_type": {
+          "ftype": 8,
+          "flen": 4,
+          "fscale": 0
+        },
+        "descr_ru": "Тип хранения (1- фиксированная ставка, 2 - от суммы оценки, 3 - от суммы кредита)",
+        "oracle": "not_assessed"
+      },
+      {
+        "table": "CONTRACTS_TERMS",
+        "column": "STORAGE_VAL",
+        "firebird_type": {
+          "ftype": 16,
+          "flen": 8,
+          "fscale": -5
+        },
+        "descr_ru": "Сумма хранения",
+        "oracle": "not_assessed"
+      },
+      {
+        "table": "CONTRACTS_TERMS",
+        "column": "STORAGE_MIN_DAYS",
+        "firebird_type": {
+          "ftype": 8,
+          "flen": 4,
+          "fscale": 0
+        },
+        "descr_ru": "Минимальное количество дней начисления хранения",
+        "oracle": "not_assessed"
+      },
+      {
+        "table": "CONTRACTS_TERMS",
+        "column": "IS_STORAGE_STOP_W_PEN",
+        "firebird_type": {
+          "ftype": 7,
+          "flen": 2,
+          "fscale": 0
+        },
+        "descr_ru": "Остановить хранение при старте пени",
+        "oracle": "not_assessed"
+      }
+    ],
+    "insurance": [
+      {
+        "table": "CONTRACTS_TERMS",
+        "column": "INSURE_TYPE",
+        "firebird_type": {
+          "ftype": 8,
+          "flen": 4,
+          "fscale": 0
+        },
+        "descr_ru": "Тип расчета страховки",
+        "oracle": "not_assessed"
+      },
+      {
+        "table": "CONTRACTS_TERMS",
+        "column": "INSURE_VAL",
+        "firebird_type": {
+          "ftype": 16,
+          "flen": 8,
+          "fscale": -5
+        },
+        "descr_ru": "Значение страховки: процент или сумма",
+        "oracle": "not_assessed"
+      },
+      {
+        "table": "CONTRACTS_TERMS",
+        "column": "INSURE_MIN_DAYS",
+        "firebird_type": {
+          "ftype": 8,
+          "flen": 4,
+          "fscale": 0
+        },
+        "descr_ru": "Минимальное количество дней начисления страховки",
+        "oracle": "not_assessed"
+      }
+    ],
+    "renewals": [
+      {
+        "table": "CONTRACTS",
+        "column": "ID_PREV_CONTRACT",
+        "firebird_type": {
+          "ftype": 8,
+          "flen": 4,
+          "fscale": 0
+        },
+        "descr_ru": "связь с предыдущим договором. Если это поле не пустое, значит, договор переоткрыт",
+        "oracle": "not_assessed"
+      },
+      {
+        "table": "OPERATIONS",
+        "column": "OP_VID",
+        "firebird_type": {
+          "ftype": 7,
+          "flen": 2,
+          "fscale": 0
+        },
+        "descr_ru": "Вид операции ovPay    = 0, // погашение (с продлением договора) ovPayNoProlong = 1, // погашение (без продления договора) - только для договоров с процентами наперед ovClose  = 2, // закрытие договора (полное погашение процентов и основной суммы - по сути, то же самое, что // и",
+        "oracle": "not_assessed"
+      },
+      {
+        "table": "OPERATIONS",
+        "column": "DEPOSIT_ID",
+        "firebird_type": {
+          "ftype": 8,
+          "flen": 4,
+          "fscale": 0
+        },
+        "descr_ru": "Ссылка на договор",
+        "oracle": "not_assessed"
+      }
+    ]
+  }
+}
