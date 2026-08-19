@@ -84,5 +84,17 @@ CREATE TABLE IF NOT EXISTS `lombard_ops.assessments` (
   max_loan NUMERIC,
   photos_gcs_path STRING,
   assessor STRING,
-  created_at TIMESTAMP NOT NULL
+  created_at TIMESTAMP NOT NULL,
+  -- Применённые факторы оценки: вложенная запись, не колонки (ADR-058, ADR-093 вариант 1).
+  -- Новый фактор заводится строкой справочника, схема таблицы при этом не меняется.
+  -- factor_id  — идентификатор из справочника факторов (data_inbox/factor_catalog.csv);
+  -- value      — что ввёл оценщик (флаг/деление шкалы/число диапазона), строкой как показано;
+  -- weight     — вес фактора на момент осмотра, копируется из справочника (историю не переписываем);
+  -- discount   — вклад фактора в total_discount, доля: -0.05 = минус 5 %.
+  applied_factors ARRAY<STRUCT<
+    factor_id STRING,
+    value STRING,
+    weight NUMERIC,
+    discount NUMERIC
+  >>
 );
