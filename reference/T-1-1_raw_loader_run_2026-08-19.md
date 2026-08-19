@@ -163,13 +163,31 @@ $ grep -n "R3\|внешн.*источник\|external.*source" tools/hooks/pre-c
 `raw_operations`) типом `TABLE`. Откат — `bq rm -t lombard_ops.raw_<table>` по каждой из девяти;
 остальные шесть таблиц датасета не затронуты.
 
-## Класс B, карточки 2-3 — НЕ ИСПОЛНЕНО, ждут карточек подтверждения владельца (шаги 8-10)
+## Класс B, карточка 2 — деплой Cloud Run Job ИСПОЛНЕНО 2026-08-19, подтверждено владельцем
 
-Cloud Run Job `raw-loader` НЕ задеплоен, Cloud Scheduler job `raw-loader-trigger` НЕ создан —
-соответственно шаг 10 (первый автоматический прогон) недостижим до исполнения карточек 2-3. Два
-отдельных сообщения с картами подтверждения — предмет отдельного шага переписки с владельцем (не
-этого артефакта): что исполняется, на каком объекте, чем откатывается — уже названо в
-`scripts/T-1-1_deploy.sh` докстрингом по каждой части.
+Первый прогон `gcloud run jobs deploy --source=connector/raw_loader --build-service-account=...`
+отбит `unrecognized arguments` — флаг существует у `gcloud functions deploy`, не у `gcloud run jobs
+deploy` (SDK 577.0.0, проверено `--help` во всех каналах, включая beta). Скрипт переписан на
+двухшаговый билд+деплой: `gcloud builds submit connector/raw_loader --pack=image=<IMAGE>
+--service-account=projects/.../serviceAccounts/lombard-build@…` (репозиторий образа —
+`cloud-run-source-deploy`, тот же, что использует `--source`-деплой неявно), затем `gcloud run jobs
+deploy raw-loader --image=<IMAGE> --service-account=lombard-pipeline@…`. Второй прогон (`--tag` без
+Dockerfile) тоже отбит `Invalid value for [source]: Dockerfile required` — в `connector/raw_loader/`
+Dockerfile'а нет по замыслу (buildpacks), исправлено на `--pack=image=...`.
+
+Третий прогон — SUCCESS: билд `58da7637-…` под `lombard-build`, образ
+`europe-west3-docker.pkg.dev/project-c451b48a-07ae-4de4-961/cloud-run-source-deploy/raw-loader`.
+`gcloud run jobs describe raw-loader` подтверждает: `Service account:
+lombard-pipeline@project-c451b48a-07ae-4de4-961.iam.gserviceaccount.com`, `Image:` тот же адрес,
+`Env vars: PROJECT_ID`, `Executed 0 times`. Откат — `gcloud run jobs delete raw-loader
+--region=europe-west3`.
+
+## Класс B, карточка 3 — НЕ ИСПОЛНЕНО, ждёт подтверждения владельца (шаг 9)
+
+Cloud Scheduler job `raw-loader-trigger` НЕ создан — шаг 10 (первый автоматический прогон)
+недостижим до исполнения карточки 3. Отдельное сообщение с картой подтверждения — предмет
+отдельного шага переписки с владельцем (не этого артефакта): что исполняется, на каком объекте, чем
+откатывается — уже названо в `scripts/T-1-1_deploy.sh` докстрингом части 3.
 
 ## Проверка на секреты перед коммитом
 

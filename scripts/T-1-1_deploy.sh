@@ -91,8 +91,11 @@ part2_deploy_job() {
   # Билд и деплой разнесены на два явных шага, билд-аккаунт называется в первом.
   IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/${JOB_NAME}"
 
+  # Без Dockerfile в connector/raw_loader/ — --tag требует Dockerfile (замерено
+  # `Invalid value for [source]: Dockerfile required`), путь тот же, что
+  # неявно шёл под `--source` — buildpacks через --pack.
   gcloud builds submit connector/raw_loader \
-    --tag="${IMAGE}" \
+    --pack="image=${IMAGE}" \
     --service-account="projects/${PROJECT_ID}/serviceAccounts/${SA_BUILD}" \
     --gcs-log-dir="gs://${PROJECT_ID}-cfsource/build-logs" \
     --project="${PROJECT_ID}"
