@@ -208,20 +208,29 @@ _IS_RENEWAL_CASE = (
 ACTIVE_TERM_HISTOGRAM = NamedQuery(
     name="active_term_histogram",
     sql=(
+        "WITH sub AS ("
         "SELECT (c.PLAN_CLOSE_DATE - c.CONTRACT_DATE) AS TERM_DAYS, "
-        f"{_IS_RENEWAL_CASE} AS IS_RENEWAL, "
-        "COUNT(*) AS CNT "
+        f"{_IS_RENEWAL_CASE} AS IS_RENEWAL "
         "FROM CONTRACTS c "
         "JOIN CONTRACT_STATES st ON st.STATE_ID = c.CONTRACT_STATE "
         "WHERE st.CODE = 'OPEN' AND c.PLAN_CLOSE_DATE IS NOT NULL "
-        "AND c.CONTRACT_DATE IS NOT NULL "
-        f"GROUP BY (c.PLAN_CLOSE_DATE - c.CONTRACT_DATE), {_IS_RENEWAL_CASE} "
+        "AND c.CONTRACT_DATE IS NOT NULL"
+        ") "
+        "SELECT TERM_DAYS, IS_RENEWAL, COUNT(*) AS CNT FROM sub "
+        "GROUP BY TERM_DAYS, IS_RENEWAL "
         "ORDER BY TERM_DAYS"
     ),
     note=(
         "распределение срока PLAN_CLOSE_DATE-CONTRACT_DATE ПО АКТИВНЫМ, "
         "отдельно по признаку продления (обе ветви, OR) — снимает ADR-070 "
-        "уточнение 1 (T-0-4a мерил по всей истории, не по активным)"
+        "уточнение 1 (T-0-4a мерил по всей истории, не по активным). "
+        "GROUP BY через WITH-CTE: Firebird 2.5 (SQLCODE -104) отбил повтор "
+        "коррелированного EXISTS внутри CASE прямо в GROUP BY — измерено "
+        "реальным прогоном 2026-08-19; derived-table `FROM (SELECT...) sub` "
+        "тоже не годится — validate_query распознаёт таблицы только из "
+        "FROM/JOIN дерева токенов, алиас производной таблицы читает как имя "
+        "таблицы вне списка, а CTE-имена исключает явно (_cte_names) — тот "
+        "же класс сборки, что и White-list, починка со стороны запроса"
     ),
 )
 
