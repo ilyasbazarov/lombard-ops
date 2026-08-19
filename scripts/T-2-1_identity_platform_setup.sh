@@ -19,8 +19,16 @@
 # Чем откатывается: `part users` — удаление тестовых пользователей
 #   (`gcloud identity` не умеет; удаление через `firebase-admin auth.delete_user(uid)`, uid
 #   печатается частью `users` и фиксируется в артефакте лога); `part setup` — отключение
-#   провайдера email+пароль (`gcloud alpha identity platform` конфиг update) — Identity Platform
+#   провайдера email+пароль (тот же REST PATCH, signIn.email.enabled=false) — Identity Platform
 #   как продукт после включения не отключается автоматическим действием, только провайдер.
+#
+# ИСПРАВЛЕНО в этой сессии (T-2-1, шаг 4): `gcloud alpha identity platform config …` не
+#   существует в установленном SDK (577.0.0, проверено `gcloud alpha identity --help`) — секция
+#   Identity Platform в `alpha`/`beta` отсутствует вовсе. Продукт также требует однократной
+#   ручной активации в Cloud Console (`console.cloud.google.com/customer-identity`) — до неё
+#   `admin/v2/.../config` отдаёt 404 CONFIGURATION_NOT_FOUND даже после `services enable`; это
+#   не воспроизводится ни `gcloud`, ни REST. Заменено на прямой REST-вызов
+#   `identitytoolkit.googleapis.com/admin/v2` с токеном `gcloud auth print-access-token`.
 
 set -euo pipefail
 
@@ -31,17 +39,24 @@ setup_provider() {
 
   gcloud services enable identitytoolkit.googleapis.com --project="${PROJECT_ID}"
 
-  gcloud alpha identity platform config update \
-    --project="${PROJECT_ID}" \
-    --sign-in-allow-duplicate-emails=false
+  local token
+  token="$(gcloud auth print-access-token)"
 
-  gcloud alpha identity platform config update \
-    --project="${PROJECT_ID}" \
-    --sign-in-email-enabled=true \
-    --sign-in-email-password-required=true
+  echo "=== PATCH config: signIn.email.enabled=true, passwordRequired=true, allowDuplicateEmails=false ==="
+  curl -sS -X PATCH \
+    "https://identitytoolkit.googleapis.com/admin/v2/projects/${PROJECT_ID}/config?updateMask=signIn.email.enabled,signIn.email.passwordRequired,signIn.allowDuplicateEmails" \
+    -H "Authorization: Bearer ${token}" \
+    -H "x-goog-user-project: ${PROJECT_ID}" \
+    -H "Content-Type: application/json" \
+    -d '{"signIn":{"email":{"enabled":true,"passwordRequired":true},"allowDuplicateEmails":false}}'
+  echo
 
-  echo "=== Приёмка части setup: config describe ==="
-  gcloud alpha identity platform config describe --project="${PROJECT_ID}"
+  echo "=== Приёмка части setup: GET config ==="
+  curl -sS -X GET \
+    "https://identitytoolkit.googleapis.com/admin/v2/projects/${PROJECT_ID}/config" \
+    -H "Authorization: Bearer ${token}" \
+    -H "x-goog-user-project: ${PROJECT_ID}"
+  echo
 }
 
 create_test_users() {
@@ -53,17 +68,26 @@ create_test_users() {
     exit 1
   fi
 
-  # Custom claims через gcloud недоступны — используется firebase-admin (Python), вызывается
-  # отдельным инлайн-скриптом, чтобы не заводить постоянный python-модуль в scripts/.
-  # Heredoc НЕ квотирован специально: значение пароля подставляется через ${LOMBARD_TEST_USER_PASSCODE}
-  # (shell-подстановка), python-код внутри $ не использует, конфликта нет.
-  python3 - <<PYEOF
-import firebase_admin
-from firebase_admin import auth as fb_auth
+  # ИСПРАВЛЕНО в этой сессии (T-2-1, шаг 4): firebase-admin требует Application Default
+  #   Credentials (`gcloud auth application-default login`) — интерактивный браузерный логин,
+  #   недоступен в этой среде исполнения. Заменено на прямой REST-вызов
+  #   `identitytoolkit.googleapis.com/v1` с тем же OAuth2-токеном `gcloud auth
+  #   print-access-token`, что и в setup_provider — тот же механизм, что firebase-admin
+  #   использует под капотом (accounts:signUp для создания, accounts:update для custom claims).
+  local token
+  token="$(gcloud auth print-access-token)"
 
-firebase_admin.initialize_app()
+  python3 - "${token}" "${PROJECT_ID}" "${LOMBARD_TEST_USER_PASSCODE}" <<'PYEOF'
+import json
+import sys
+import urllib.request
 
-_test_passcode = "${LOMBARD_TEST_USER_PASSCODE}"
+token, project_id, passcode = sys.argv[1], sys.argv[2], sys.argv[3]
+headers = {
+    "Authorization": f"Bearer {token}",
+    "x-goog-user-project": project_id,
+    "Content-Type": "application/json",
+}
 
 TEST_USERS = [
     ("test-owner@lombard-ops.test", "owner"),
@@ -71,13 +95,27 @@ TEST_USERS = [
     ("test-assessor@lombard-ops.test", "assessor"),
 ]
 
+def call(url, body):
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers, method="POST")
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read())
+
 for email, role in TEST_USERS:
-    create_kwargs = {"email": email, "email_verified": True}
-    create_kwargs["password"] = _test_passcode
-    user = fb_auth.create_user(**create_kwargs)
-    fb_auth.set_custom_user_claims(user.uid, {"role": role})
-    created = fb_auth.get_user(user.uid)
-    print(f"created uid={created.uid} email={created.email} claims={created.custom_claims}")
+    signup = call(
+        "https://identitytoolkit.googleapis.com/v1/accounts:signUp",
+        {"email": email, "password": passcode, "emailVerified": True},
+    )
+    uid = signup["localId"]
+    call(
+        "https://identitytoolkit.googleapis.com/v1/accounts:update",
+        {"localId": uid, "customAttributes": json.dumps({"role": role})},
+    )
+    lookup = call(
+        "https://identitytoolkit.googleapis.com/v1/accounts:lookup",
+        {"localId": [uid]},
+    )
+    user = lookup["users"][0]
+    print(f"created uid={user['localId']} email={user['email']} claims={user.get('customAttributes')}")
 PYEOF
 }
 
