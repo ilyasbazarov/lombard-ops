@@ -74,3 +74,34 @@ row_count_control: (7,)
 ```
 Признак режима: `MON$READ_ONLY=1` предъявлен на каждый из двух запросов.
 `EXITCODE: 0`.
+
+## Шаг 5 — распределение по статусам и аномалии (класс B)
+
+Запросы: `active_status_distribution`, `active_offset_distribution`,
+`anomaly_empty_plan_close_date`, `anomaly_nonpositive_term`,
+`anomaly_renewal_without_predecessor`. `MON$READ_ONLY=1` на каждый вызов,
+`EXITCODE: 0`.
+
+```
+active_status_distribution:
+  CLOSED: 2352
+  OPEN:    95   ← активные (то же определение, что active_total T-0-4a)
+  SALED:   73
+  (итого договоров в выборке: 2520)
+
+active_offset_distribution (только OPEN, PLAN_CLOSE_DATE IS NOT NULL):
+  -7 и раньше:  67
+  -6..+1:       10
+  +2..+15:       8
+  +16..+31:      9
+  +32 и далее:   1
+  (сумма = 95, совпадает со счётом OPEN — NULL среди активных отсутствует)
+
+anomaly_empty_plan_close_date:        0
+anomaly_nonpositive_term:             0
+anomaly_renewal_without_predecessor:  0
+```
+
+**Три класса аномалии из критериев приёмки и оба новых класса `ADR-070` — счёт
+нулевой по всем пяти на дату прогона 2026-08-19.** Статусная модель `03 §1` на
+активных договорах материальных аномалий не обнаружила.
