@@ -85,11 +85,22 @@ part2_deploy_job() {
   gcloud iam service-accounts describe "${SA_BUILD}" --format="value(email,uniqueId)"
   gcloud iam service-accounts describe "${SA_PIPELINE}" --format="value(email,uniqueId)"
 
+  # ИСПРАВЛЕНО 2026-08-19: `gcloud run jobs deploy --source` в SDK 577.0.0 не несёт
+  # флага --build-service-account вовсе (был в `gcloud functions deploy`, не в `run
+  # jobs deploy`) — замерено `unrecognized arguments` при первом прогоне карточки 2.
+  # Билд и деплой разнесены на два явных шага, билд-аккаунт называется в первом.
+  IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/${JOB_NAME}"
+
+  gcloud builds submit connector/raw_loader \
+    --tag="${IMAGE}" \
+    --service-account="projects/${PROJECT_ID}/serviceAccounts/${SA_BUILD}" \
+    --gcs-log-dir="gs://${PROJECT_ID}-cfsource/build-logs" \
+    --project="${PROJECT_ID}"
+
   gcloud run jobs deploy "${JOB_NAME}" \
-    --source=connector/raw_loader \
+    --image="${IMAGE}" \
     --region="${REGION}" \
     --service-account="${SA_PIPELINE}" \
-    --build-service-account="projects/${PROJECT_ID}/serviceAccounts/${SA_BUILD}" \
     --set-env-vars="PROJECT_ID=${PROJECT_ID}" \
     --project="${PROJECT_ID}"
 
