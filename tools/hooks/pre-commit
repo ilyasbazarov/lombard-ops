@@ -80,6 +80,19 @@ extract_section() {
     ' <<< "$content"
 }
 
+# Текст БЕЗ региона между start_re и end_re (обратная extract_section: строка-старт
+# и всё до терминатора выбрасываются, сам терминатор остаётся). Нужна там, где
+# регион по построению временный и его содержимое не должно участвовать в сравнении.
+remove_section() {
+    local content="$1"
+    HOOK_START_RE="$2" HOOK_END_RE="$3" awk '
+        BEGIN { start = ENVIRON["HOOK_START_RE"]; end = ENVIRON["HOOK_END_RE"] }
+        $0 ~ start { flag=1; next }
+        flag && $0 ~ end { flag=0 }
+        !flag { print }
+    ' <<< "$content"
+}
+
 # Добавленные ("+") строки диффа файла с номером строки НОВОГО файла.
 # Формат вывода: "<line>\t<content>". Без head, без ранней остановки на большом
 # патче (ловушка 4): дочитывается до конца, вход не обрывается по первой находке.
@@ -201,9 +214,22 @@ check3_hits=0
 archive_added_text="$(added_lines_numbered "$(staged_diff 07_ARCHIVE.md)" | cut -f2-)"
 archive_added_ids="$(extract_ids "$archive_added_text")"
 archive_head_ids="$(extract_ids "$(head_content 07_ARCHIVE.md)")"
-union_before="$(head_content 07_STATE.md)
+# Четвёртая правка (ADR-092, замер 2026-08-19) — тот же класс: ложный отказ на
+# законном ходе дел. Идентификатор, названный ТОЛЬКО в стенд-апе, исчезает из
+# состояния при первой же следующей сессии: стенд-ап ЗАМЕНЯЕТСЯ ЦЕЛИКОМ по
+# построению (ADR-021), и требовать за это переноса в архив нечем — решение живёт
+# в журнале, задача в таблице мандата. Живой случай: ADR-090 назван в стенд-апе
+# своей сессии, следующая сессия заменила блок, и коммит встал. Регион стенд-апа
+# вырезается из обеих сторон сравнения; строки состояния (мандат, индекс вопросов,
+# блокеры) остаются под проверкой целиком.
+# Вместе со стенд-апом вырезается шапка «Статус/updated_at/обновил»: она тоже
+# переписывается каждой сессией целиком и называет решение ТЕКУЩЕЙ сессии — на
+# ней и встал ADR-090, а не на стенд-апе.
+state_before_no_standup="$(remove_section "$(remove_section "$(head_content 07_STATE.md)" '^\*\*Статус:\*\* LIVE' '^## ')" '^## Стенд-ап' '^## ')"
+state_after_no_standup="$(remove_section "$(remove_section "$(staged_content 07_STATE.md)" '^\*\*Статус:\*\* LIVE' '^## ')" '^## Стенд-ап' '^## ')"
+union_before="${state_before_no_standup}
 $(head_content 07_GAPS.md)"
-union_after="$(staged_content 07_STATE.md)
+union_after="${state_after_no_standup}
 $(staged_content 07_GAPS.md)"
 before_ids="$(extract_ids "$union_before")"
 after_ids="$(extract_ids "$union_after")"
