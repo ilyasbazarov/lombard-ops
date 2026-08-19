@@ -38,7 +38,7 @@ def read(p):
     return io.open(p, encoding='utf-8').read().split('\n')
 
 # --- какие строки роудмапа и реестра вопросов открыты ------------------------
-open_tasks, closed_tasks = set(), set()
+open_tasks, closed_tasks, deps = set(), set(), {}
 for line in read(roadmap_p):
     m = re.match(r'^\|\s*([TM]-[0-9][0-9A-Za-z-]*)\s*\|', line)
     if not m:
@@ -47,6 +47,7 @@ for line in read(roadmap_p):
     ident = m.group(1)
     status = cells[7] if len(cells) > 7 else ''
     (closed_tasks if 'done' in status.lower() else open_tasks).add(ident)
+    deps[ident] = cells[6] if len(cells) > 6 else ''
 
 open_gaps = set()
 for line in read(gaps_p):
@@ -136,6 +137,28 @@ for i in missing:
           u'сборка брифа обязана остановиться' % i)
 print(u'')
 
+# --- 6. висячая зависимость: ссылка на строку, которой нет ни в карте, ни в архиве
+# Два источника ложного срабатывания сняты и названы: (1) закрытая задача — её строка
+# уезжает в 07_ARCHIVE дословно (ADR-019), и там её и надо искать; (2) идентификатор
+# внутри ПОЯСНЕНИЯ в круглых скобках («прежняя T-1-2 снята») зависимостью не является.
+archive_ids = set()
+if os.path.exists('07_ARCHIVE.md'):
+    archive_ids = set(re.findall(r'\b[TM]-[0-9][0-9A-Za-z-]*',
+                                 io.open('07_ARCHIVE.md', encoding='utf-8').read()))
+known = open_tasks | closed_tasks | archive_ids
+dangling = []
+for ident, dep in sorted(deps.items()):
+    bare = re.sub(r'\([^)]*\)', ' ', dep)          # пояснения в скобках — не зависимость
+    for ref in re.findall(r'\b[TM]-[0-9][0-9A-Za-z-]*', bare):
+        if ref not in known and ref != ident:
+            dangling.append((ident, ref))
+print(u'-- 6. Висячие зависимости: ссылка на строку, которой нет ни в карте, ни в архиве --')
+print(u'count=%d' % len(dangling))
+for ident, ref in dangling:
+    print(u'%s зависит от %s — такой строки нет ни в 04_ROADMAP, ни в 07_ARCHIVE: зависимость '
+          u'не блокирует и не пропускает, она не работает' % (ident, ref))
+print(u'')
+
 total = 0
 print(u'-- 4. Цена обязательного контекста (байты) --')
 for p in context_files:
@@ -151,8 +174,9 @@ if total > limit:
 else:
     print(u'в пределах порога, запас %d байт' % (limit - total))
 print(u'')
-print(u'=== ИТОГ === без якоря: %d · остывших: %d · неразрешимых: %d · без мандата: %d · контекст: %d/%d'
-      % (len(no_anchor), len(cold), len(unresolved), len(missing), total, limit))
+print(u'=== ИТОГ === без якоря: %d · остывших: %d · неразрешимых: %d · без мандата: %d · '
+      u'висячих зависимостей: %d · контекст: %d/%d'
+      % (len(no_anchor), len(cold), len(unresolved), len(missing), len(dangling), total, limit))
 PY
 }
 
@@ -168,6 +192,13 @@ selftest() {
 |---|---|---|---|---|---|---|---|
 | T-9-1 | живая задача | 1 | A | продукт | — | todo | печатает |
 | T-9-2 | закрытая задача | 1 | A | продукт | — | **done** (2026-08-19) | напечатала |
+| T-9-3 | задача с висячей зависимостью | 1 | A | продукт | T-9-8 | todo | печатает |
+EOF
+    cat > "$tmp/road_ok.md" <<'EOF'
+| ID | Задача | §6 | Класс | Метка | Зависит от | Статус | Приёмка |
+|---|---|---|---|---|---|---|---|
+| T-9-1 | живая задача | 1 | A | продукт | — | todo | печатает |
+| T-9-2 | закрытая задача | 1 | A | продукт | T-9-1 | **done** (2026-08-19) | напечатала |
 EOF
     cat > "$tmp/gaps.md" <<'EOF'
 | ID | Статус | Вопрос | Гейт |
@@ -240,11 +271,13 @@ EOF
     check "кейс 6 · секция за следующим заголовком не читается" \
         "0" "$(printf '%s\n' "$out_bad" | grep -c 'сюда проверка не заглядывает')"
     check "кейс 11 · открытая задача без строки мандата найдена (ADR-072)" \
-        "1" "$(printf '%s\n' "$itog_bad" | sed -n 's/.*без мандата: \([0-9]*\).*/\1/p')"
+        "2" "$(printf '%s\n' "$itog_bad" | sed -n 's/.*без мандата: \([0-9]*\).*/\1/p')"
+    check "кейс 13 · висячая зависимость найдена (ADR-089)" \
+        "1" "$(printf '%s\n' "$itog_bad" | sed -n 's/.*висячих зависимостей: \([0-9]*\).*/\1/p')"
 
     # Отрицательная проба: на исправной фикстуре все три класса дают НОЛЬ, и это
     # подтверждается напечатанными числами, а не отсутствием вывода.
-    out_ok="$(STATE_FILE="$tmp/state_ok.md" ROADMAP_FILE="$tmp/road.md" GAPS_FILE="$tmp/gaps.md" \
+    out_ok="$(STATE_FILE="$tmp/state_ok.md" ROADMAP_FILE="$tmp/road_ok.md" GAPS_FILE="$tmp/gaps.md" \
         CONTEXT_FILES="$tmp/state_ok.md" CONTEXT_LIMIT=999999 run_check)"
     itog_ok="$(printf '%s\n' "$out_ok" | grep '^=== ИТОГ ===')"
     check "кейс 7 · исправная секция: без якоря 0" \
@@ -257,6 +290,8 @@ EOF
         "1" "$(printf '%s\n' "$out_ok" | grep -c 'в пределах порога')"
     check "кейс 12 · исправная таблица мандата: без мандата 0" \
         "0" "$(printf '%s\n' "$itog_ok" | sed -n 's/.*без мандата: \([0-9]*\).*/\1/p')"
+    check "кейс 14 · исправная карта: висячих зависимостей 0" \
+        "0" "$(printf '%s\n' "$itog_ok" | sed -n 's/.*висячих зависимостей: \([0-9]*\).*/\1/p')"
 
     echo
     echo "=== САМОТЕСТ state_hot_check.sh: пройдено ${passed}, провалено ${failed} ==="
