@@ -166,11 +166,25 @@ TTL. Мера (разрыв наследования на `signed_jwt.txt`, пр
 версии `google-auth` — обработчик обязан ловить оба класса. Разбор — раздел 6
 `reference/T-0-8_step7_negative_probes_2026-08-17.md`.
 
-### Cloud Run (service + job) — ⏳ (T-1-1, T-2-1)
-Деплой, секреты в env через Secret Manager, расписание jobs, минимальные инстансы.
+### Cloud Run (service + job) — service ✅ (T-2-1, 2026-08-19), job ⏳ (T-1-1)
+`app-lombard` задеплоен `gcloud run deploy --source=app --build-service-account=lombard-build@…`
+(явный билд-аккаунт, `--build-arg` для Dockerfile этой командой не передаётся — только
+`--set-build-env-vars`, применимо к buildpacks; `VITE_FIREBASE_*` во frontend-бандл этим деплоем
+не попал, см. `reference/T-2-1_deploy_and_acceptance_2026-08-19.md`). Секреты в env через Secret
+Manager этой задачей не заводились (только Firebase ID-токен в заголовке запроса).
 
-### Identity Platform — ⏳ (T-2-1)
-Включение, email/password провайдер, custom claims для ролей, проверка токена в API, создание пользователей без self-signup.
+### Identity Platform — ✅ (T-2-1, 2026-08-19)
+Продукт требует ОДНОРАЗОВОЙ ручной активации в Cloud Console
+(`console.cloud.google.com/customer-identity`) — до неё `admin/v2/.../config` отдаёт `404
+CONFIGURATION_NOT_FOUND` даже после `gcloud services enable identitytoolkit.googleapis.com`; это
+не gcloud-скриптуется и не REST-скриптуется, выполнено владельцем в браузере. `gcloud alpha
+identity platform config …` НЕ СУЩЕСТВУЕТ в SDK 577.0.0 — конфиг провайдера правится REST
+`identitytoolkit.googleapis.com/admin/v2` с OAuth2-токеном (`gcloud auth print-access-token` +
+заголовок `x-goog-user-project`). Custom claims и создание пользователей через `firebase-admin`
+требуют Application Default Credentials (`gcloud auth application-default login`, интерактивный
+браузерный логин) — недоступно в headless-среде; заменено на REST `identitytoolkit.googleapis.com/v1`
+(`accounts:signUp` / `accounts:update` / `accounts:lookup`) тем же токеном. Полный текст —
+`reference/T-2-1_identity_platform_setup_2026-08-19.md`.
 
 ### RDP / PowerShell на ERP-сервере — практика
 - Вставка в PowerShell: правый клик. Копирование: выделить → Enter.
