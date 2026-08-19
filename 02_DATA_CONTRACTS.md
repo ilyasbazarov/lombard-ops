@@ -19,7 +19,8 @@ DDL — источник истины в `/sql/ddl/`. Ключевые конт�
 
 | Таблица | Ключевые поля | Контракт |
 |---|---|---|
-| `loans_raw` | contract_id, vehicle_id (VIN), client_name, vehicle_make, vehicle_model, vehicle_year, loan_amount, issue_date, due_date, status_raw, renewed, renewed_date, loaded_at | staging; пишет только connector |
+| **слой сырья: девять `raw_*`** | по каждой таблице — колонки один-в-один из отпечатка `connector/mapping.json` `schema_fingerprint` плюс `loaded_at TIMESTAMP` и `source_blob STRING` | **Заведён `ADR-083`** (прежде слой назывался в `01 §1` и не существовал в DDL). Имена: `raw_contracts`, `raw_contracts_terms`, `raw_subjects`, `raw_custom_fields_values`, `raw_dir_custom_fields`, `raw_tables_table`, `raw_contract_states`, `raw_deposit_types`, `raw_operations`. **DDL ГЕНЕРИРУЕТСЯ из отпечатка** (9 таблиц / 124 колонки, `T-0-10`), от руки не пишется — один источник истины на структуру сырья и на эталон guard'а. Правило типов, закрытый список: `7`→`INT64`, `8`→`INT64`, `12`→`DATE`, `16`→`INT64` при `scale = 0` и `NUMERIC` при `scale < 0`, `27`→`FLOAT64`, `35`→`TIMESTAMP`, `37`→`STRING`. **Код типа вне списка — стоп, а не «похожий тип».** Пишет только загрузчик `T-1-1`; читает только SQL-слой канонизации `T-1-2` |
+| `loans_raw` | contract_id, vehicle_id (VIN), client_name, vehicle_make, vehicle_model, vehicle_year, loan_amount, issue_date, due_date, status_raw, renewed, renewed_date, loaded_at | staging; пишет только connector. **Наполняется в два приёма (`ADR-083` п.5–6):** `contract_id`/`issue_date`/`due_date`/`loan_amount` — `T-1-0` (исполнено); `vehicle_id`, `vehicle_make`, `vehicle_model`, `vehicle_year`, `status_raw`, `renewed`, `renewed_date` — `T-1-2` **из слоя сырья, без повторного обращения к базе клиента**; `client_name` не наполняется вовсе, пока открыт `Q-30` (таблица клиентов вне девяти разрешённых, имя клиента — ПДн) |
 | `events` | event_id, timestamp, contract_id, vehicle_id, event_type, payload JSON, actor, idempotency_key | **APPEND ONLY, никогда не обновляется.** PARTITION BY DATE(timestamp), CLUSTER BY contract_id |
 | `offers` | offer_id, contract_id, vehicle_id, offer_date, buyer_contact, offer_amount, vs_floor, decision, decided_by, decided_at, tg_message_id | append only |
 | `pricing_snapshots` | contract_id, calc_date, balance_amount, realization_price, floor_price, floor_pct, depreciation_coeff, days_since_default | снапшот в день на займ в 🔴 |
@@ -50,6 +51,20 @@ DDL — источник истины в `/sql/ddl/`. Ключевые конт�
 | хранение (STORAGE) | `CONTRACTS_TERMS.STORAGE_TYPE`, `STORAGE_VAL`, `STORAGE_MIN_DAYS`, `IS_STORAGE_STOP_W_PEN` | см. измерение | | компонента `ADR-010 v3`; период начисления НЕ выбран — два кандидата, оракул не сошёлся |
 | страховка (INSURE) | `CONTRACTS_TERMS.INSURE_TYPE`, `INSURE_VAL`, `INSURE_MIN_DAYS` | см. измерение | | на замеренных 98 активных договорах — везде ноль (`INSURE_VAL=0`) |
 | renewals-механизм | `CONTRACTS.ID_PREV_CONTRACT` (ветвь «Переоткрытие») ИЛИ `OPERATIONS.OP_VID = 0` (`ovPay`, ветвь «Погашение»), присоединяется по `OPERATIONS.DEPOSIT_ID = CONTRACTS.CONTRACT_ID` | — | обе ветви объединяются `OR` | **Закрыт `T-0-4a`, 2026-08-18** (`reference/T-0-4a_renewal_detector_measurement_2026-08-18.md`), полная логика — `03 §2`. Всё ещё блокирует финализацию `issue_date`/`rate`-формулы для `Q-18` — это `T-0-4b`, не снято этим замером |
+
+**Чего в этой таблице НЕТ, и это названо, а не забыто (`ADR-083` п.6–8, п.10-в).** Строк для
+`client_name`, `vehicle_make`, `vehicle_model`, `vehicle_year`, `status_raw` здесь нет ни одной.
+**Запись `CHANGELOG.md` от 2026-07-14 («найден и подтверждён источник VIN/госномера/модели/года …
+заполнена `02 §3`») содержимым этого раздела НЕ подтверждается** — журнал изменений есть историческая
+запись сессии и переписыванию не подлежит, но опираться на него как на источник маппинга нельзя.
+Действующий расклад: `status_raw` — работа `T-1-2`, источник внутри белого списка
+(`CONTRACTS.CONTRACT_STATE` → `CONTRACT_STATES`); имена полей марки, модели, года и **госномера**
+(вход обязательного суррогата `vehicle_id` выше) меряются в `T-0-6` поиском по
+`DIR_CUSTOM_FIELDS` через `LIKE` и ложатся строками сюда; `client_name` висит на `Q-30` — таблица
+клиентов вне девяти разрешённых и вне грантов, имя клиента есть ПДн (`ADR-001`, `00 §4`).
+**Поправка к артефакту:** `reference/T-1-0_tracer_bullet_2026-08-18.md` называет источником
+`client_name` таблицу `SUBJECTS` — это неверно, `SUBJECTS` есть предмет залога
+(`TABLES_TABLE.ID=9` → «Loan items table», замер `T-0-4a`).
 
 Правило: канонизация — единственное место преобразований; ниже по конвейеру данные уже чистые.
 

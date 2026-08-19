@@ -22,12 +22,22 @@
 | `due_date` | `CONTRACTS.PLAN_CLOSE_DATE` | да |
 | `loan_amount` | `CONTRACTS.DEPOSIT_SUM` ÷ 100 | да |
 | `vehicle_id` | `SUBJECTS`/`CUSTOM_FIELDS_VALUES` (`T-1-2`) | **NULL** |
-| `client_name` | `SUBJECTS` (`T-1-2`) | **NULL** |
+| `client_name` | ~~`SUBJECTS`~~ — **источник указан НЕВЕРНО, поправка `ADR-083` п.10-а** | **NULL** |
 | `vehicle_make` / `vehicle_model` / `vehicle_year` | `SUBJECTS`/`CUSTOM_FIELDS_VALUES` (`T-1-2`) | **NULL** |
 | `status_raw` | `CONTRACT_STATES` (`T-1-2`) | **NULL** |
 | `renewed` / `renewed_date` | `OPERATIONS`/`CONTRACTS.ID_PREV_CONTRACT` (`T-1-2`) | **NULL** |
 
 Полная канонизация — предмет `T-1-2`, не этой задачи.
+
+**ПОПРАВКА 2026-08-19 (`ADR-083` п.10-а). Замер этой задачи не переписывается (`ADR-024`) — поправляется
+одно утверждение о СХЕМЕ, замером не подтверждённое.** Строка `client_name` называла источником
+`SUBJECTS`. Это неверно: `SUBJECTS` есть предмет залога, а не клиент — `TABLES_TABLE.ID=9` →
+`SUBJECTS` («Loan items table»), измерено `T-0-4a` (`11_INFRA_FACTS`). Действующий вердикт: у
+`client_name` источника в девяти разрешённых таблицах НЕТ вовсе; `CONTRACTS.CLIENT_ID` существует,
+таблица клиентов вне белого списка и вне грантов, имя клиента есть ПДн. Колонка висит на `Q-30`,
+гейт `T-1-2`. Остальные строки таблицы поправку не получают: `status_raw` (`CONTRACT_STATES`) и
+`vehicle_id`/`vehicle_make`/`vehicle_model`/`vehicle_year`
+(`CUSTOM_FIELDS_VALUES`/`DIR_CUSTOM_FIELDS`) имеют источники внутри белого списка.
 
 ## Решения исполнителя, зафиксированные этой задачей
 

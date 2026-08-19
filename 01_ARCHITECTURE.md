@@ -9,9 +9,9 @@
 ERP-сервер клиента (Windows Server, Firebird 2.5.9 · БД PawnShop)
         │  read-only SELECT · канал: АГЕНТ НА СЕРВЕРЕ, только исходящий трафик (ADR-046, T-0-8)
         ▼
-[connector]  Cloud Run Job, по расписанию ──► BigQuery: staging (loans_raw и сырьё)
+[raw-loader]  Cloud Run Job, по расписанию: GCS ──► BigQuery: слой сырья (девять raw_*, ADR-083)
         ▼
-[canonical]  SQL-слой канонизации ──► BigQuery: canonical view + справочники
+[canonical]  SQL-слой канонизации: raw_* ──► loans_raw ──► canonical view + справочники
         ▼
 [cf-daily]   Cloud Function, Cloud Scheduler 08:00 Asia/Bishkek
              статусы → алерты → идемпотентность → pricing → сводка 09:05
@@ -29,7 +29,8 @@ ERP-сервер клиента (Windows Server, Firebird 2.5.9 · БД PawnShop
 
 | Компонент | Технология | Назначение |
 |---|---|---|
-| `job-connector` | Cloud Run Job (Python) | Подключение к Firebird → guard схемы → выгрузка нужных таблиц → BigQuery staging |
+| `agent` (на сервере клиента) | Python, задача планировщика Windows | Подключение к Firebird через единственную точку доступа → guard схемы → выгрузка девяти used-таблиц в NDJSON → GCS `cfsource`. **Единственное, что касается базы вендора** (`ADR-046`, `T-0-8`) |
+| `raw-loader` (прежнее имя `job-connector`) | Cloud Run Job (Python) | Приземление девяти NDJSON из GCS → guard схемы НА ЗАГРУЗКЕ → девять таблиц `raw_*` слоя сырья BigQuery. **К Firebird не подключается вовсе** — прежняя формулировка «подключение к Firebird → выгрузка» описывала отменённый `ADR-046` канал и правится по факту (`ADR-083` п.10-б). Предмет `T-1-1` |
 | `cf-daily` | Cloud Function (Python), Scheduler 08:00 | Конвейер шагов: canonical → renewals → staleness → статусы → дедупликация → алерты → pricing → сводка. Упал ранний шаг — поздние не выполняются |
 | `cf-tg-handler` | Cloud Function (Python), HTTP webhook | Обработка inline-кнопок Telegram (решения по floor), редактирование сообщений, запись в `offers`/`events` |
 | `app-lombard` | Cloud Run (React + API) | Все экраны для людей. Auth: Identity Platform (email+пароль), роли в custom claims: `owner`/`manager`/`assessor`. API проверяет токен и роль на каждом запросе |
