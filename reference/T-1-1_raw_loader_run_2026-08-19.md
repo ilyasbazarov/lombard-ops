@@ -182,12 +182,18 @@ lombard-pipeline@project-c451b48a-07ae-4de4-961.iam.gserviceaccount.com`, `Image
 `Env vars: PROJECT_ID`, `Executed 0 times`. Откат — `gcloud run jobs delete raw-loader
 --region=europe-west3`.
 
-## Класс B, карточка 3 — НЕ ИСПОЛНЕНО, ждёт подтверждения владельца (шаг 9)
+## Класс B, карточка 3 — invoker + Cloud Scheduler ИСПОЛНЕНО 2026-08-19, подтверждено владельцем
 
-Cloud Scheduler job `raw-loader-trigger` НЕ создан — шаг 10 (первый автоматический прогон)
-недостижим до исполнения карточки 3. Отдельное сообщение с картой подтверждения — предмет
-отдельного шага переписки с владельцем (не этого артефакта): что исполняется, на каком объекте, чем
-откатывается — уже названо в `scripts/T-1-1_deploy.sh` докстрингом части 3.
+`gcloud run jobs add-iam-policy-binding raw-loader --member=serviceAccount:lombard-pipeline@…
+--role=roles/run.invoker` прошло без исправлений (команда — как в скрипте). `gcloud scheduler jobs
+create http raw-loader-trigger` — тоже без исправлений. `describe` подтверждает: `schedule: 0 4 * *
+*`, `timeZone: Asia/Bishkek`, `state: ENABLED`, `uri: .../jobs/raw-loader:run`, `oidcToken.
+serviceAccountEmail: lombard-pipeline@…`. `scheduleTime: 2026-08-19T22:00:00Z` = 04:00 Бишкек
+2026-08-20, совпадает с расписанием побуквенно. Первый автоматический прогон — не раньше этого
+момента; шаг 10 (работоспособность нитки на живых данных) не проверен. Откат — `gcloud scheduler
+jobs delete raw-loader-trigger --location=europe-west3` и снятие invoker-биндинга.
+
+## Класс B — все три карточки `T-1-1` исполнены. Строка задачи остаётся `todo` до шага 10
 
 ## Проверка на секреты перед коммитом
 
