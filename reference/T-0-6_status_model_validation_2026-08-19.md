@@ -159,3 +159,22 @@ op_vid0_distinct_contracts: DISTINCT_WITH_OP_VID0=536, TOTAL_CONTRACTS=2520
 среднем ~2.07 операции `OP_VID=0`). **Вердикт: гипотеза о происхождении 44%
 через `OP_VID=0` ОТВЕРГНУТА** различающей проверкой — счёт распадается вдвое
 при переходе от счёта операций к счёту различных договоров.
+
+## Шаг 8, часть 1 — поля объекта: каталог кандидатов (класс B)
+
+`vehicle_field_candidates` — `LIKE` по фрагментам MARK/BRAND/MODEL/YEAR/GOD/NUM/GOSNOM/REG/PLATE,
+все совпавшие строки печатает лог целиком (критерий приёмки):
+
+```
+ID_FIELD  NAME (шаблон)                              ID_OBJ_TABLE
+10        &$DIR_CUSTOM_FIELDS.SUBJ_AUTO_MODEL#&       9
+15        &$DIR_CUSTOM_FIELDS.SUBJ_AUTO_NUMBER_PLATE#& 9
+16        &$DIR_CUSTOM_FIELDS.SUBJ_TECH_MODEL#&       9
+20        &$DIR_CUSTOM_FIELDS.SUBJ_AUTO_MODEL#&       16
+25        &$DIR_CUSTOM_FIELDS.SUBJ_AUTO_NUMBER_PLATE#& 16
+26        &$DIR_CUSTOM_FIELDS.SUBJ_TECH_MODEL#&       16
+```
+
+6 строк, ни одной по фрагментам YEAR/GOD (год) или отдельно MARK/BRAND (марка
+как отдельное поле) — предварительно, окончательный вердикт «не найдено» по
+`03 §3` даётся на шаге 9 после счёта непустых значений (следующая карта).
