@@ -229,6 +229,37 @@ Cloud Run **Jobs Admin API**, не прямой URL сервиса) — `gcloud 
 `scheduleTime: 2026-08-20T22:00:00Z` = 04:00 Бишкек 2026-08-21; работоспособность нитки на живых
 данных подтвердится только этим прогоном — не форсируется (та же логика приёмки, что `T-1-0`).
 
+## Ускоренный замер шага 10 (2026-08-20, класс B, подтверждено владельцем)
+
+`schedule` временно переставлен на `58 12 * * *` (Asia/Bishkek, ~5 минут вперёд) — вызов остаётся
+инициативой `cloudscheduler.googleapis.com`, не человека, критерий шага 10 «источник не человек» не
+нарушается. После наблюдения расписание возвращено на `0 4 * * *` (`userUpdateTime:
+2026-08-20T07:00:17Z`).
+
+**HTTP-вызов Scheduler → Cloud Run Jobs Admin API — SUCCESS.** Карточка 3-Б подтверждена фактом:
+`AttemptFinished` `httpRequest.status=200`, `debugInfo: URL_CRAWLED`. `gcloud run jobs executions
+list` — исполнение `raw-loader-kxvqx`, `RUN BY: lombard-pipeline@…` (не человек).
+
+**Сам Job упал — НОВЫЙ дефект, не связан с авторизацией.** `executions describe raw-loader-kxvqx`:
+`Task raw-loader-kxvqx-task0 failed with exit code: 4`. Контейнерный лог:
+```
+Starting gunicorn 22.0.0
+Listening at: http://0.0.0.0:8080 (1)
+Failed to find attribute 'app' in 'main'.
+[ERROR] Worker (pid) exited with code 4
+[ERROR] Reason: App failed to load.
+```
+Причина — buildpacks (`google.python.missing-entrypoint`, замечено ещё в логе билда карточки 2:
+`WARNING: Setting default entrypoint: "gunicorn -b :8080 main:app"`) поставили процесс-тип `web` по
+умолчанию, потому что явный `Procfile`/`--command` не задан. `connector/raw_loader/main.py` — обычный
+батч-скрипт без объекта `app` (докстринг модуля, шаг 5 брифа: «Cloud Run Jobs не несёт HTTP-триггера»)
+— исполнение реального кода `main.py` НЕ НАЧИНАЛОСЬ ни разу, задача упала на старте контейнера,
+раньше guard'а и загрузчика. **Задача продолжает наблюдаться: шаг 10 остаётся НЕ ЗАКРЫТЫМ.**
+
+Исправление — деплой с явным `--command=python3 --args=main.py`, переопределяющим entrypoint
+buildpacks, не написано и не применено этой сессией — новая правка `part2` (класс A код + класс B
+деплой), ждёт решения владельца отдельным сообщением.
+
 ## Проверка на секреты перед коммитом
 
 ```
