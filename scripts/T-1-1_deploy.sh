@@ -100,16 +100,23 @@ part2_deploy_job() {
     --gcs-log-dir="gs://${PROJECT_ID}-cfsource/build-logs" \
     --project="${PROJECT_ID}"
 
-  # ИСПРАВЛЕНО 2026-08-20: без явной команды buildpacks ставят процесс-тип `web`
-  # (`gunicorn -b :8080 main:app`) — замерено `exit code 4`, `Failed to find
-  # attribute 'app' in 'main'`, ускоренный замер шага 10. `main.py` — батч-скрипт
-  # (докстринг шага 5 брифа), entrypoint переопределяется явно.
+  # ИСПРАВЛЕНО 2026-08-20 (два раунда): без явной команды buildpacks ставят
+  # процесс-тип `web` (`gunicorn -b :8080 main:app`) — `exit code 4`, `Failed
+  # to find attribute 'app' in 'main'`. Литеральный `--command=python3` тоже
+  # не работает — `--command` заменяет ENTRYPOINT в обход `/cnb/lifecycle/
+  # launcher`, который выставляет `PATH` к слою интерпретатора; голый `PATH`
+  # контейнера python3 не несёт (`which python3` — пусто, замерено ускоренным
+  # диагностическим замером `raw-loader-pmxrr`). Точный путь венва с уже
+  # установленными зависимостями (`requirements.txt`, тот же слой, что нёс
+  # `gunicorn`) — листинг `/layers` замером `raw-loader-888k2`.
+  PYTHON_BIN="/layers/google.python.uv/uv-dependencies/.venv/bin/python3"
+
   gcloud run jobs deploy "${JOB_NAME}" \
     --image="${IMAGE}" \
     --region="${REGION}" \
     --service-account="${SA_PIPELINE}" \
     --set-env-vars="PROJECT_ID=${PROJECT_ID}" \
-    --command="python3" \
+    --command="${PYTHON_BIN}" \
     --args="main.py" \
     --project="${PROJECT_ID}"
 
