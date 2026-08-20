@@ -291,6 +291,33 @@ buildpacks-слое, путь к которому launcher добавляет с
 ENTRYPOINT. Требует пересборки (класс B, билд) — не команда карточки 2, новый цикл. Ждёт решения
 владельца.
 
+## Диагностика причины (2026-08-20, класс B, два ускоренных замера, подтверждено владельцем)
+
+Оба замера — без пересборки, тот же образ, `--command=sh` вместо литерального `python3`/пересборки.
+Расписание временно `13:25`/`13:33` Asia/Bishkek, после каждого возвращено на `0 4 * * *`.
+
+**Замер 1** (`raw-loader-pmxrr`, SUCCESS) — `which python3 python python3.14` не напечатал НИЧЕГО
+(все три не найдены). `env` внутри контейнера:
+```
+PATH=/cnb/process:/cnb/lifecycle:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+```
+Гипотеза подтверждена: `python3` действительно отсутствует на «голом» `PATH` при обходе launcher'а.
+`/layers` несёт каталоги `google.python.runtime`, `google.python.uv` — интерпретатор и зависимости
+лежат слоями, путь к которым добавляет launcher, не система.
+
+**Замер 2** (`raw-loader-888k2`, SUCCESS) — листинг слоёв нашёл ТОЧНЫЙ путь:
+```
+/layers/google.python.uv/uv-dependencies/.venv/bin/python3 -> python -> /layers/google.python.runtime/python/bin/python3.14
+```
+Тот же venv несёт `gunicorn`, значит те же зависимости (`google-cloud-bigquery` и др. из
+`requirements.txt`) в нём и установлены — абсолютный путь к venv-интерпретатору самодостаточен
+(`pyvenv.cfg` сам разрешает свой `site-packages`), `PYTHONPATH`/`VIRTUAL_ENV` от launcher'а не
+требуются для импорта зависимостей.
+
+**Финальный кандидат-фикс (не применён, ждёт отдельного подтверждения):**
+`--command=/layers/google.python.uv/uv-dependencies/.venv/bin/python3 --args=main.py` — без
+пересборки, тот же образ. Дешевле `Procfile`-варианта (без билда).
+
 ## Проверка на секреты перед коммитом
 
 ```
