@@ -318,6 +318,32 @@ PATH=/cnb/process:/cnb/lifecycle:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/b
 `--command=/layers/google.python.uv/uv-dependencies/.venv/bin/python3 --args=main.py` — без
 пересборки, тот же образ. Дешевле `Procfile`-варианта (без билда).
 
+## Третий ускоренный замер (2026-08-20, класс B, подтверждено владельцем) — entrypoint ИСПРАВЛЕН
+
+Передеплой (без пересборки) с `--command=/layers/google.python.uv/uv-dependencies/.venv/bin/python3
+--args=main.py`. `describe` подтверждает `Command`/`Args`. Расписание `13:41`, после замера возвращено
+на `0 4 * * *`.
+
+**`raw-loader-hxs86` — 1 минута 22 секунды выполнения (не мгновенный сбой), реальный код `main.py`
+запустился впервые.** Логи несут строки `lombard.raw_loader.main` — entrypoint закрыт окончательно.
+
+**Guard поймал реальное расхождение — ложное, дефект в самом guard'е (не в данных).** Лог:
+```
+GUARD ОСТАНОВИЛ ПРОГОН на таблице CONTRACTS: SchemaLoadGuardMismatch: таблица raw_contracts —
+эталон=[..., ('contract_id', 'INT64'), ...] ИЗМЕРЕНО=[..., ('contract_id', 'INTEGER'), ...]
+```
+Расхождение — ТОЛЬКО в имени типа (`INT64` из `mapping.json`/шаг 1 против `INTEGER` из
+`bigquery.Client.get_table(...).schema`), не в структуре данных. `bigquery.Client` возвращает
+`field_type` именами legacy SQL даже для таблиц, созданных standard-SQL DDL — известная особенность
+клиента, не была покрыта локальными тестами (`FakeSchemaField` в `test_guard.py` использовал те же
+строки, что эталон, легаси-алиасы не воспроизводились).
+
+**Исправлено в `guard.py`, коммит `877eb1a`.** `live_schema_pairs` нормализует `INTEGER` → `INT64`,
+`FLOAT` → `FLOAT64` (ровно типы закрытого списка `ADR-083` п.4, шире не расширено). Локальные тесты
+— 12/12, без регрессий. **Правка НЕ задеплоена** — нужна синхронизация в `connector/raw_loader/`
+(файл там единственный, копий не несёт) и повторный `part2` деплой (образ не менялся структурно,
+но код изменился — пересборка обязательна). Ждёт отдельного подтверждения владельца.
+
 ## Проверка на секреты перед коммитом
 
 ```
