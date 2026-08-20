@@ -52,11 +52,26 @@ def expected_schema_pairs(schema: Iterable[tuple[str, str, str]]) -> set[tuple[s
     return {(name.lower(), field_type) for name, field_type, _mode in schema}
 
 
+_LEGACY_SQL_TO_STANDARD_SQL = {
+    # `bigquery.Client.get_table(...).schema` возвращает `field_type` именами
+    # legacy SQL, даже для таблиц, созданных standard-SQL DDL (`INT64` и т.д.)
+    # — замерено первым реальным прогоном шага 10 (`SchemaLoadGuardMismatch`
+    # на `raw_contracts`, эталон нёс `INT64`, живая схема — `INTEGER`).
+    # Список — ровно типы закрытого списка `ADR-083` п.4, не шире.
+    "INTEGER": "INT64",
+    "FLOAT": "FLOAT64",
+}
+
+
 def live_schema_pairs(bq_schema: Iterable[Any]) -> set[tuple[str, str]]:
     """Живая схема из `bigquery.Client.get_table(...).schema` (список
     `SchemaField`, каждый несёт `.name`/`.field_type`) -> то же множество пар,
-    для сверки тем же ключом, что и эталон."""
-    return {(field.name.lower(), field.field_type) for field in bq_schema}
+    для сверки тем же ключом, что и эталон. `field_type` нормализуется к
+    standard SQL — см. `_LEGACY_SQL_TO_STANDARD_SQL`."""
+    return {
+        (field.name.lower(), _LEGACY_SQL_TO_STANDARD_SQL.get(field.field_type, field.field_type))
+        for field in bq_schema
+    }
 
 
 def check_schema(
