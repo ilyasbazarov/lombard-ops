@@ -29,7 +29,11 @@ LOCATION="europe-west3"
 DATASET="lombard_ops"
 TABLE="vehicle_catalog"
 SEED_FILE="data_inbox/vehicle_catalog_seed.json"
-SCHEMA="make:STRING,model:STRING,liquidity_class:STRING,ltv_max:NUMERIC,buyout_price:NUMERIC,price_source:STRING,comment:STRING,updated_at:TIMESTAMP"
+# Схема НЕ передаётся явно: таблица lombard_ops.vehicle_catalog уже существует (ALTER TABLE выше
+# применяется к ней же) — bq load использует схему существующей таблицы (документированное
+# поведение: "This schema should be omitted if the table already has one"). Инлайн-схема bq load
+# (name:type через запятую) не поддерживает MODE, а make/model в этой таблице REQUIRED — попытка
+# передать текстовую схему валится с "Invalid schema entry: make:STRING:REQUIRED".
 
 diag_before() {
   echo "=== Диагностика ДО (ожидается 0 строк) ==="
@@ -52,8 +56,7 @@ load_seed() {
   bq load --project_id="${PROJECT_ID}" --location="${LOCATION}" \
     --source_format=NEWLINE_DELIMITED_JSON \
     "${DATASET}.${TABLE}" \
-    "${SEED_FILE}" \
-    "${SCHEMA}"
+    "${SEED_FILE}"
 }
 
 diag_after() {
