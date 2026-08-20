@@ -136,14 +136,42 @@ part3_scheduler() {
   gcloud scheduler jobs describe "${SCHEDULER_JOB}" --location="${REGION}" --project="${PROJECT_ID}"
 }
 
+part3b_fix_scheduler_auth() {
+  echo "=== Часть 3-Б (исправление шага 9 по факту провала шага 10): OIDC -> OAuth ==="
+  # Замерено 2026-08-20: цель вызова — europe-west3-run.googleapis.com, хост *.googleapis.com
+  # (Cloud Run Jobs Admin API), а не прямой URL сервиса. `gcloud scheduler jobs create http
+  # --help` дословно: OAuth обязателен для целей *.googleapis.com, OIDC отбивается 401
+  # UNAUTHENTICATED (лог AttemptFinished, reference/T-1-1_raw_loader_run_2026-08-19.md).
+  # roles/run.invoker (часть 3, п.1) не трогается — он верный и не был причиной отказа.
+
+  RUN_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT_ID}/jobs/${JOB_NAME}:run"
+
+  gcloud scheduler jobs delete "${SCHEDULER_JOB}" --location="${REGION}" --project="${PROJECT_ID}" --quiet
+
+  gcloud scheduler jobs create http "${SCHEDULER_JOB}" \
+    --location="${REGION}" \
+    --schedule="0 4 * * *" \
+    --time-zone="Asia/Bishkek" \
+    --uri="${RUN_URI}" \
+    --http-method=POST \
+    --oauth-service-account-email="${SA_PIPELINE}" \
+    --oauth-token-scope="https://www.googleapis.com/auth/cloud-platform" \
+    --project="${PROJECT_ID}"
+
+  echo "=== Приёмка части 3-Б: gcloud scheduler jobs describe ${SCHEDULER_JOB} (oauthToken, не oidcToken) ==="
+  gcloud scheduler jobs describe "${SCHEDULER_JOB}" --location="${REGION}" --project="${PROJECT_ID}"
+}
+
 case "${1:-}" in
   part1) part1_apply_ddl ;;
   part2) part2_deploy_job ;;
   part3) part3_scheduler ;;
+  part3b) part3b_fix_scheduler_auth ;;
   *)
     echo "Использование: $0 part1   # шаг 7, после карточки подтверждения 1 (DDL)"
     echo "               $0 part2   # шаг 8, после карточки подтверждения 2 (Cloud Run Job)"
     echo "               $0 part3   # шаг 9, после карточки подтверждения 3 (Cloud Scheduler)"
+    echo "               $0 part3b  # исправление шага 9 (OIDC -> OAuth), после карточки подтверждения 3-Б"
     echo "Без аргумента скрипт НИЧЕГО не делает — защита от случайного запуска."
     exit 1
     ;;

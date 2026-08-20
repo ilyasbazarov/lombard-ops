@@ -195,6 +195,35 @@ jobs delete raw-loader-trigger --location=europe-west3` и снятие invoker-
 
 ## Класс B — все три карточки `T-1-1` исполнены. Строка задачи остаётся `todo` до шага 10
 
+## Шаг 10 — первый автоматический прогон: НАБЛЮДЕНИЕ, ПРОВАЛ (2026-08-20T04:00 Asia/Bishkek)
+
+`gcloud run jobs executions list --job=raw-loader --region=europe-west3` → `Listed 0 items` — job ни
+разу не выполнился, гэп наблюдения не в счёте строк, а раньше: HTTP-вызов Scheduler к Cloud Run Jobs
+Admin API вообще не прошёл.
+
+```
+$ gcloud scheduler jobs describe raw-loader-trigger --location=europe-west3
+lastAttemptTime: '2026-08-19T22:00:00.811417Z'   # = 2026-08-20T04:00 Asia/Bishkek, по расписанию
+status: { code: 2 }                               # UNKNOWN на уровне describe
+
+$ gcloud logging read 'resource.type="cloud_scheduler_job" AND resource.labels.job_id="raw-loader-trigger"'
+AttemptStarted  targetType=HTTP  url=.../namespaces/.../jobs/raw-loader:run
+AttemptFinished status=UNAUTHENTICATED  httpRequest.status=401
+  debugInfo: "URL_ERROR-ERROR_AUTHENTICATION. Original HTTP response code number = 401"
+```
+
+**Причина — тип токена, не право доступа.** `scripts/T-1-1_deploy.sh part3` создал job с
+`--oidc-service-account-email`/`--oidc-token-audience` (тот же приём, что invoker для
+`*.run.app`-адресов сервисов). Цель здесь — `europe-west3-run.googleapis.com` (хост `*.googleapis.com`,
+Cloud Run **Jobs Admin API**, не прямой URL сервиса) — `gcloud scheduler jobs create http --help`
+дословно: «The token must be OAuth if the target is a Google APIs service with URL *.googleapis.com».
+`roles/run.invoker` на job (шаг 9) сам по себе корректен и не тронут (`get-iam-policy` подтверждает
+биндинг) — отказ раньше, на этапе аутентификации вызова Admin API, до проверки авторизации на job.
+
+**Исправление НЕ применено этой сессией** — пересоздание Scheduler job
+(`--oauth-service-account-email`/`--oauth-token-scope` вместо `--oidc-*`) есть операция над облачным
+ресурсом, класс B, ждёт отдельного подтверждения владельца (карточка 3-Б).
+
 ## Проверка на секреты перед коммитом
 
 ```
