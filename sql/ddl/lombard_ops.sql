@@ -56,12 +56,15 @@ CREATE TABLE IF NOT EXISTS `lombard_ops.pricing_snapshots` (
   days_since_default INT64
 );
 
+-- price_source/comment добавлены T-2-4 (02 §2): справочник ликвидности несёт метку синтетики.
 CREATE TABLE IF NOT EXISTS `lombard_ops.vehicle_catalog` (
   make STRING NOT NULL,
   model STRING NOT NULL,
   liquidity_class STRING,
   ltv_max NUMERIC,
   buyout_price NUMERIC,
+  price_source STRING,
+  comment STRING,
   updated_at TIMESTAMP
 );
 

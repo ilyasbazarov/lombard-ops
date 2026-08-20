@@ -11,6 +11,7 @@ import os
 from flask import Flask, jsonify, request, send_from_directory
 
 from auth import require_auth, require_role
+from bigquery_client import fetch_vehicle_catalog
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "dist")
 
@@ -38,6 +39,14 @@ def owner_only():
     """Ресурс, размеченный ролью owner — используется приёмкой 403 для роли assessor
     (шаг 2 и шаг 8-в брифа T-2-1)."""
     return jsonify({"ok": True, "resource": "owner-only"}), 200
+
+
+@app.get("/api/catalog")
+@require_auth
+def catalog():
+    """Справочник ликвидности (T-2-4, 12_UX_CONTRACT.md §3.6) — все три роли видят, только просмотр,
+    поэтому require_role не применяется (12 §4: /catalog — просмотр owner/manager/assessor)."""
+    return jsonify(fetch_vehicle_catalog()), 200
 
 
 @app.route("/", defaults={"path": ""})
