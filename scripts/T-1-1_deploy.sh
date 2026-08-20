@@ -100,11 +100,17 @@ part2_deploy_job() {
     --gcs-log-dir="gs://${PROJECT_ID}-cfsource/build-logs" \
     --project="${PROJECT_ID}"
 
+  # ИСПРАВЛЕНО 2026-08-20: без явной команды buildpacks ставят процесс-тип `web`
+  # (`gunicorn -b :8080 main:app`) — замерено `exit code 4`, `Failed to find
+  # attribute 'app' in 'main'`, ускоренный замер шага 10. `main.py` — батч-скрипт
+  # (докстринг шага 5 брифа), entrypoint переопределяется явно.
   gcloud run jobs deploy "${JOB_NAME}" \
     --image="${IMAGE}" \
     --region="${REGION}" \
     --service-account="${SA_PIPELINE}" \
     --set-env-vars="PROJECT_ID=${PROJECT_ID}" \
+    --command="python3" \
+    --args="main.py" \
     --project="${PROJECT_ID}"
 
   echo "=== Приёмка части 2: gcloud run jobs describe ${JOB_NAME} ==="
