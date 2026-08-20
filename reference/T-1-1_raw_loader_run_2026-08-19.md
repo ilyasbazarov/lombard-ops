@@ -220,9 +220,14 @@ Cloud Run **Jobs Admin API**, не прямой URL сервиса) — `gcloud 
 `roles/run.invoker` на job (шаг 9) сам по себе корректен и не тронут (`get-iam-policy` подтверждает
 биндинг) — отказ раньше, на этапе аутентификации вызова Admin API, до проверки авторизации на job.
 
-**Исправление НЕ применено этой сессией** — пересоздание Scheduler job
-(`--oauth-service-account-email`/`--oauth-token-scope` вместо `--oidc-*`) есть операция над облачным
-ресурсом, класс B, ждёт отдельного подтверждения владельца (карточка 3-Б).
+**Исправление применено 2026-08-20, карточка 3-Б, подтверждено владельцем.**
+`scripts/T-1-1_deploy.sh part3b`: `gcloud scheduler jobs delete raw-loader-trigger` +
+`gcloud scheduler jobs create http ... --oauth-service-account-email=lombard-pipeline@…
+--oauth-token-scope=https://www.googleapis.com/auth/cloud-platform`. `describe` после пересоздания
+несёт поле `oauthToken` (`scope`, `serviceAccountEmail`) вместо поля `oidcToken` — расписание (`0 4 * * *`,
+`Asia/Bishkek`) и invoker-биндинг на job не менялись. Следующее срабатывание —
+`scheduleTime: 2026-08-20T22:00:00Z` = 04:00 Бишкек 2026-08-21; работоспособность нитки на живых
+данных подтвердится только этим прогоном — не форсируется (та же логика приёмки, что `T-1-0`).
 
 ## Проверка на секреты перед коммитом
 
