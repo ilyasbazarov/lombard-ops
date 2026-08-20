@@ -15,7 +15,7 @@ from bigquery_client import fetch_vehicle_catalog
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "dist")
 
-app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/")
+app = Flask(__name__, static_folder=None)
 
 
 @app.get("/healthz")
